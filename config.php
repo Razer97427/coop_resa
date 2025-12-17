@@ -8,8 +8,8 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 define('DB_SERVER', 'localhost');
-define('DB_USERNAME', 'root');
-define('DB_PASSWORD', 'root'); // À ajuster
+define('DB_USERNAME', 'admin');
+define('DB_PASSWORD', 'admin'); // À ajuster
 define('DB_NAME', 'db_coop'); // À ajuster*/
 
 // Connexion à la base de données MySQL
