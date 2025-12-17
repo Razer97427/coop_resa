@@ -1,0 +1,261 @@
+<?php
+require_once 'config.php'; 
+include 'includes/header.php';
+
+// Vérification Manager
+if (($_SESSION['user_role'] ?? '') !== 'Manager') {
+    echo "<script>window.location.href='index.php';</script>";
+    exit();
+}
+
+// --- 1. LOGIQUE DE VALIDATION / REFUS ---
+if (isset($_GET['action']) && isset($_GET['id'])) {
+    $action = $_GET['action'];
+    $id = (int)$_GET['id'];
+    $statut = ($action == 'valider') ? 'Validée' : (($action == 'refuser') ? 'Refusée' : '');
+    
+    if ($statut) {
+        $stmt = $conn->prepare("UPDATE reservations SET statut_resa = ? WHERE id_reservation = ?");
+        $stmt->bind_param("si", $statut, $id);
+        $stmt->execute();
+        echo "<script>window.location.href='manager.php';</script>";
+        exit();
+    }
+}
+
+// --- 2. FILTRES DE RECHERCHE ---
+$search_keyword = $_GET['search'] ?? '';
+$search_date = $_GET['date'] ?? '';
+
+// On détecte si l'utilisateur est en train de chercher quelque chose
+$is_searching = !empty($search_keyword) || !empty($search_date);
+
+// Construction de la clause WHERE dynamique
+$filter_sql = "";
+$filter_params = [];
+$filter_types = "";
+
+if (!empty($search_keyword)) {
+    // Recherche large : Nom OU Prénom OU Matricule Employé OU Immatriculation Véhicule
+    $filter_sql .= " AND (e.nom LIKE ? OR e.prenom LIKE ? OR e.matricule LIKE ? OR v.immatriculation LIKE ?)";
+    $term = "%$search_keyword%";
+    array_push($filter_params, $term, $term, $term, $term);
+    $filter_types .= "ssss";
+}
+
+if (!empty($search_date)) {
+    // Recherche par date exacte de début
+    $filter_sql .= " AND DATE(r.date_debut_resa) = ?";
+    $filter_params[] = $search_date;
+    $filter_types .= "s";
+}
+
+// --- 3. CHARGEMENT DES DONNÉES FILTRÉES ---
+
+// A. Requête "En attente"
+$sql_demandes = "
+    SELECT r.*, e.nom, e.prenom, e.matricule, v.marque, v.modele, v.immatriculation 
+    FROM reservations r 
+    JOIN employes e ON r.id_employe = e.id_employe 
+    JOIN vehicules v ON r.id_vehicule = v.id_vehicule 
+    WHERE r.statut_resa = 'En attente' $filter_sql
+    ORDER BY r.date_debut_resa ASC";
+
+$stmt_demandes = $conn->prepare($sql_demandes);
+if (!empty($filter_params)) {
+    $stmt_demandes->bind_param($filter_types, ...$filter_params);
+}
+$stmt_demandes->execute();
+$demandes = $stmt_demandes->get_result();
+
+// B. Requête "Historique Global" (Validée, Terminée, Annulée, Refusée)
+$sql_historique = "
+    SELECT r.*, e.nom, e.prenom, e.matricule, v.marque, v.modele, v.immatriculation 
+    FROM reservations r 
+    JOIN employes e ON r.id_employe = e.id_employe 
+    JOIN vehicules v ON r.id_vehicule = v.id_vehicule 
+    WHERE r.statut_resa != 'En attente' $filter_sql 
+    ORDER BY r.date_debut_resa DESC LIMIT 50";
+
+$stmt_historique = $conn->prepare($sql_historique);
+if (!empty($filter_params)) {
+    $stmt_historique->bind_param($filter_types, ...$filter_params);
+}
+$stmt_historique->execute();
+$historique = $stmt_historique->get_result();
+?>
+
+<h2>🛠️ Dashboard Manager</h2>
+
+<!-- BARRE DE RECHERCHE -->
+<div class="form-container" style="background-color: #e9ecef; border: 1px solid #dee2e6; padding: 15px;">
+    <h3 style="margin-top:0; font-size:1.1rem;">🔍 Rechercher une réservation</h3>
+    <form action="manager.php" method="GET">
+        <div class="time-group">
+            <div style="flex: 2;">
+                <label style="margin-top:0;">Mots-clés</label>
+                <input type="text" name="search" value="<?php echo htmlspecialchars($search_keyword); ?>" 
+                       placeholder="Nom, Prénom, Matricule ou Immatriculation...">
+            </div>
+            <div style="flex: 1;">
+                <label style="margin-top:0;">Date</label>
+                <input type="date" name="date" value="<?php echo htmlspecialchars($search_date); ?>">
+            </div>
+        </div>
+        <div style="margin-top: 10px; display: flex; gap: 10px;">
+            <button type="submit" class="action-btn charge-btn" style="width: auto; margin-top:0;">Rechercher</button>
+            <a href="manager.php" class="action-btn cancel-btn" style="text-decoration:none; padding:10px 20px;">Réinitialiser</a>
+        </div>
+    </form>
+</div>
+
+<!--<h3>🔔 En attente (<?php echo $demandes->num_rows; ?>)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Demandeur</th>
+            <th>Véhicule</th>
+            <th>Dates</th>
+            <th>Motif</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    <?php if ($demandes->num_rows > 0): ?>
+        <?php while ($row = $demandes->fetch_assoc()): ?>
+        <tr>
+            <td data-label="Demandeur">
+                <?php echo htmlspecialchars($row['prenom'] . ' ' . $row['nom']); ?>
+                <br><small class="text-muted"><?php echo htmlspecialchars($row['matricule']); ?></small>
+            </td>
+            <td data-label="Véhicule">
+                <?php echo htmlspecialchars($row['marque'] . ' ' . $row['modele']); ?>
+                <br><small class="text-muted"><?php echo htmlspecialchars($row['immatriculation']); ?></small>
+            </td>
+            <td data-label="Dates"><?php echo date('d/m H:i', strtotime($row['date_debut_resa'])); ?></td>
+            <td data-label="Motif"><?php echo htmlspecialchars($row['motif']); ?></td>
+            <td data-label="Actions">
+                <a href="manager.php?action=valider&id=<?php echo $row['id_reservation']; ?>" class="action-btn charge-btn">Valider</a>
+                <a href="manager.php?action=refuser&id=<?php echo $row['id_reservation']; ?>" class="action-btn cancel-btn">Refuser</a>
+            </td>
+        </tr>
+        <?php endwhile; ?>
+    <?php else: ?>
+        <tr>
+            <td colspan="5" class="text-center" style="padding: 20px; font-style: italic; color: #666;">
+                <?php if ($is_searching): ?>
+                    ❌ Aucun résultat trouvé pour votre recherche "<strong><?php echo htmlspecialchars($search_keyword . ' ' . $search_date); ?></strong>".
+                <?php else: ?>
+                    ✅ Aucune demande en attente pour le moment.
+                <?php endif; ?>
+            </td>
+        </tr>
+    <?php endif; ?>
+    </tbody>
+</table>-->
+
+<hr>
+
+<h3>📂 Historique Global</h3>
+<table class="historique-global-table">
+    <thead>
+        <tr>
+            <th>Statut</th>
+            <th>Qui / Quoi</th>
+            <th style="background-color: #f8f9fa;">Période Prévue</th> 
+            <th>Départ Réel</th>
+            <th>Retour Réel</th>
+            <th>Motif & Notes</th> </tr>
+    </thead>
+    <tbody>
+    <?php if ($historique->num_rows > 0): ?>
+        <?php while ($row = $historique->fetch_assoc()): ?>
+        <tr class="<?php echo ($row['statut_resa'] == 'Annulée' || $row['statut_resa'] == 'Refusée') ? 'archived' : ''; ?>">
+            
+            <td data-label="Statut">
+                <span class="status-tag <?php echo strtolower(str_replace(' ', '-', $row['statut_resa'])); ?>">
+                    <?php echo htmlspecialchars($row['statut_resa']); ?>
+                </span>
+            </td>
+
+            <td data-label="Qui/Quoi">
+                <strong><?php echo htmlspecialchars($row['nom']); ?></strong><br>
+                <small><?php echo htmlspecialchars($row['marque'] . ' ' . $row['modele']); ?></small><br>
+                <small class="text-muted"><?php echo htmlspecialchars($row['immatriculation']); ?></small>
+            </td>
+
+            <td data-label="Prévu" style="background-color: #f8f9fa;">
+                <span class="text-muted">Du :</span> <?php echo date('d/m H:i', strtotime($row['date_debut_resa'])); ?><br>
+                <span class="text-muted">Au :</span> <?php echo date('d/m H:i', strtotime($row['date_fin_resa'])); ?>
+            </td>
+
+            <td data-label="Départ Réel">
+                <?php if (!empty($row['date_depart_reel'])): ?>
+                    <div>📅 <?php echo date('d/m H:i', strtotime($row['date_depart_reel'])); ?></div>
+                    <div style="font-weight:bold; color:#0056b3;">
+                        Km: <?php echo htmlspecialchars($row['km_debut']); ?>
+                    </div>
+                <?php else: ?>
+                    <span class="text-muted">-</span>
+                <?php endif; ?>
+            </td>
+
+            <td data-label="Retour Réel">
+                <?php if (!empty($row['date_retour_reel'])): ?>
+                    <div>📅 <?php echo date('d/m H:i', strtotime($row['date_retour_reel'])); ?></div>
+                    <div style="font-weight:bold; color:#0056b3;">
+                        Km: <?php echo htmlspecialchars($row['km_fin']); ?>
+                    </div>
+                <?php else: ?>
+                    <span class="text-muted">-</span>
+                <?php endif; ?>
+            </td>
+
+            <td data-label="Détails">
+                <div style="margin-bottom: 8px;">
+                    <span class="text-muted">Motif :</span><br>
+                    <strong><?php echo htmlspecialchars($row['motif']); ?></strong><br>
+					<span class="text-muted">Destination :</span><br>
+                    <strong><?php echo htmlspecialchars($row['destination']); ?></strong>
+                </div>
+
+                <?php if (!empty($row['commentaire_depart'] ?? '')): ?>
+                    <div style="margin-bottom: 5px; color: #d9534f; background-color: #fff3cd; padding: 2px 5px; border-radius: 4px; display: inline-block;">
+                        <span style="font-weight: bold;">⚠️ Note Départ :</span> 
+                        <?php echo htmlspecialchars($row['commentaire_depart']); ?>
+                    </div>
+                    <br>
+                <?php endif; ?>
+
+                <?php if (!empty($row['commentaire_retour'])): ?>
+                    <div style="color: #dc3545; background-color: #f8d7da; padding: 2px 5px; border-radius: 4px; display: inline-block;">
+                        <span style="font-weight: bold;">❗ Note Retour :</span> 
+                        <?php echo htmlspecialchars($row['commentaire_retour']); ?>
+                    </div>
+                <?php endif; ?>
+
+                <?php if (empty($row['commentaire_retour']) && empty($row['commentaire_depart'] ?? '')): ?>
+                    <small class="text-muted" style="font-style:italic;">(Aucune note)</small>
+                <?php endif; ?>
+            </td>
+
+        </tr>
+        <?php endwhile; ?>
+    <?php else: ?>
+        <tr>
+            <td colspan="6" class="text-center" style="padding: 20px; font-style: italic; color: #666;">
+                <?php if ($is_searching): ?>
+                    ❌ Aucun historique ne correspond à votre recherche "<strong><?php echo htmlspecialchars($search_keyword . ' ' . $search_date); ?></strong>".
+                <?php else: ?>
+                    Aucun historique de réservation disponible.
+                <?php endif; ?>
+            </td>
+        </tr>
+    <?php endif; ?>
+    </tbody>
+</table>
+
+<?php 
+$conn->close();
+include 'includes/footer.php'; 
+?>

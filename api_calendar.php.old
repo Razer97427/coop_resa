@@ -1,0 +1,29 @@
+<?php
+require_once 'config.php'; 
+header('Content-Type: application/json');
+
+if (isset($_GET['id_vehicule'])) {
+    $id_vehicule = (int)$_GET['id_vehicule'];
+    
+    $stmt = $conn->prepare("SELECT r.id_reservation, r.date_debut_resa, r.date_fin_resa, r.statut_resa, e.nom FROM reservations r JOIN employes e ON r.id_employe = e.id_employe WHERE r.id_vehicule = ? AND r.statut_resa IN ('Validée', 'En cours', 'En attente')");
+    $stmt->bind_param("i", $id_vehicule);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $events = [];
+    while ($row = $result->fetch_assoc()) {
+        $color = '#28a745'; 
+        if ($row['statut_resa'] == 'En cours') $color = '#17a2b8';
+        if ($row['statut_resa'] == 'En attente') $color = '#ffc107';
+
+        $events[] = [
+            'id' => $row['id_reservation'],
+            'title' => $row['nom'] . ' (' . $row['statut_resa'] . ')',
+            'start' => $row['date_debut_resa'],
+            'end'   => $row['date_fin_resa'],
+            'color' => $color
+        ];
+    }
+    echo json_encode($events);
+}
+?>
