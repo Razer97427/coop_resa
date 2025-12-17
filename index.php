@@ -37,7 +37,8 @@ if (isset($_POST['restitution_submit'])) {
     $id_resa = (int)$_POST['id_reservation'];
     $km_fin = (int)$_POST['km_fin'];
     
-    $date_retour_raw = $_POST['date_retour_reel'] ?? date('Y-m-d H:i:s');
+    /*$date_retour_raw = $_POST['date_retour_reel'] ?? date('Y-m-d H:i:s');*/
+	$date_retour_raw = date('Y-m-d H:i:s');
     $date_retour = str_replace('T', ' ', $date_retour_raw); 
     
     $comment = $_POST['commentaire_retour'] ?? '';
@@ -231,8 +232,8 @@ $historique = $stmt_h->get_result();
             <input type="hidden" name="restitution_submit" value="1">
             <input type="hidden" name="id_reservation" value="<?php echo $restitution_id; ?>">
             
-            <label>Date Retour Réelle :</label>
-            <input type="datetime-local" name="date_retour_reel" value="<?php echo date('Y-m-d\TH:i'); ?>" required>
+            <!--<label>Date Retour Réelle :</label>
+            <input type="datetime-local" name="date_retour_reel" value="<?php echo date('Y-m-d\TH:i'); ?>" required>-->
 
             <label>KM Fin (Compteur actuel) :</label>
             <input type="number" name="km_fin" required min="<?php echo $km_ref; ?>" value="">

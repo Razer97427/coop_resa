@@ -41,7 +41,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <body class="login-body">
 
 <div class="login-container">
-    <h2>🔑 Connexion au système</h2>
+    <h2>🔑 Connexion</h2>
     
     <?php if ($error_message): ?>
         <div class="message error"><?php echo htmlspecialchars($error_message); ?></div>
@@ -56,14 +56,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         
         <button type="submit">Se Connecter</button>
 		
-		<small style="color: red; font-weight: bold;" class="small_class">
-		Note :
-		Identifiant similaire à libertempo.<br>
-		
-		** Par exemple 00123 devient 123<br>
-		** Et 01123 devient 1123<br>
-		** Les zéro sont supprimer.
-		</small>
     </form>
 </div>
 
