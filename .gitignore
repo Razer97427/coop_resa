@@ -1,0 +1,5 @@
+# Ignorer un fichier spécifique
+config.php
+
+# Ignorer un dossier entier (ex: node_modules)
+vendor/

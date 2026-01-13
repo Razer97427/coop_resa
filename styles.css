@@ -1,0 +1,726 @@
+/* ==========================================================================
+   SYSTÈME DE GESTION DE FLOTTE - CSS RESPONSIVE COMPLET FINAL
+   ========================================================================== */
+
+/* ==========================================================================
+   1. VARIABLES CSS
+   ========================================================================== */
+:root {
+    --primary: #007bff;
+    --primary-dark: #0056b3;
+    --secondary: #6c757d;
+    --success: #28a745;
+    --warning: #ffc107;
+    --danger: #dc3545;
+    --bg-light: #f4f6f9;
+    --white: #ffffff;
+    --border: #dee2e6;
+    --text: #333;
+    --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.1);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.15);
+    
+    /* Variable native FullCalendar pour le jour actuel */
+    --fc-today-bg-color: #fff3cd !important;
+    --fc-page-bg-color: #ffffff;
+}
+
+/* ==========================================================================
+   2. RESET & BASE
+   ========================================================================== */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-light);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* ==========================================================================
+   3. HEADER & NAVIGATION
+   ========================================================================== */
+.main-header {
+    background-color: var(--primary);
+    color: var(--white);
+    padding: 15px 20px;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    justify-content: center; /* Centre le contenu globalement */
+    align-items: center;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.main-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.titre_principal {
+	margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+	/*font: h1;*/
+	}
+
+nav {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+nav a {
+    color: rgba(255,255,255,0.95);
+    text-decoration: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+nav a:hover {
+    background-color: rgba(255,255,255,0.2);
+    transform: translateY(-1px);
+}
+
+
+.titre-de-connexion {
+  /* Mise en page de base */
+  padding: 20px 40px;
+  display: inline-block; /* Pour que le fond colle au texte */
+  border-radius: 16px;   /* Arrondi moderne */
+  font-family: 'Inter', sans-serif; /* Police propre */
+  font-weight: 800;
+  
+  /* Couleurs et Fond */
+  background-color: #f4f4f4; /* Ton gris original */
+  color: var(--primary);
+  
+  /* L'effet Halo de base (subtil) */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  
+  /* Transition fluide pour l'animation */
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: default;
+}
+
+/* L'EFFET DE SURVOL */
+.titre-de-connexion:hover {
+  /* Le texte brille (Halo sur le texte) */
+  text-shadow: 0 0 20px rgba(99, 102, 241, 0.6);
+  
+  /* Le fond change légèrement */
+  background-color: #ffffff;
+  
+  /* L'effet Halo externe (autour de la boite) */
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.25);
+  
+  /* Petit mouvement vers le haut */
+  transform: translateY(-5px) scale(1.02);
+}
+
+.user-info {
+    background: rgba(0,0,0,0.2);
+    padding: 6px 15px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    margin-left: 10px;
+    white-space: nowrap;
+}
+
+/* --- CORRECTION HEADER DESKTOP --- */
+.header-content {
+    display: flex;
+    flex-direction: row; /* Force l'alignement horizontal sur PC */
+    justify-content: space-between; /* Écarte le logo et le menu aux extrémités */
+    align-items: center;
+    width: 100%;
+    max-width: 1400px; /* S'aligne avec le reste du contenu */
+    margin: 0 auto;
+    flex-wrap: wrap; /* Permet au menu de passer à la ligne si nécessaire sur petit écran */
+}
+
+/* Menu Toggle Button (Mobile) */
+.menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.8rem;
+    cursor: pointer;
+    padding: 5px 10px;
+    margin: 0;
+    width: auto;
+}
+
+.menu-toggle:hover {
+    background: rgba(255,255,255,0.1);
+    border-radius: 5px;
+}
+
+/* ==========================================================================
+   4. CONTENU PRINCIPAL
+   ========================================================================== */
+.content {
+    flex: 1;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 25px 20px;
+}
+
+h2, h3 {
+    color: var(--text);
+    margin-bottom: 20px;
+}
+
+h2 {
+    font-size: 1.8rem;
+    font-weight: 600;
+}
+
+h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+/* ==========================================================================
+   5. LAYOUT RÉSERVATION (SIDEBAR + CALENDRIER)
+   ========================================================================== */
+.booking-container {
+    display: flex;
+    gap: 25px;
+    align-items: flex-start;
+    margin-bottom: 40px;
+}
+
+.booking-sidebar {
+    flex: 1;
+    min-width: auto;
+    max-width: auto;
+    background: var(--white);
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border);
+}
+
+.booking-calendar-wrapper {
+    flex: 2.5;
+    background: var(--white);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border);
+    min-width: 0;
+}
+
+/* ==========================================================================
+   6. FORMULAIRES
+   ========================================================================== */
+label {
+    display: block;
+    margin-top: 15px;
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 1rem;
+    background-color: var(--white);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.readonly-input {
+    background-color: #e9ecef;
+    cursor: not-allowed;
+    color: #495057;
+}
+
+button {
+    width: 100%;
+    padding: 12px 20px;
+    margin-top: 20px;
+    background-color: var(--primary);
+    color: var(--white);
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+button:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+.time-group {
+    display: flex;
+    gap: 15px;
+}
+
+.time-group div {
+    flex: 1;
+}
+
+.form-container,
+.form-section {
+    background: var(--white);
+    padding: 25px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 30px;
+    box-shadow: var(--shadow-sm);
+}
+
+.container {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* ==========================================================================
+   7. TABLEAUX (Sauf Calendrier)
+   ========================================================================== */
+table:not([class*='fc-']) {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--white);
+    margin-bottom: 25px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+table:not([class*='fc-']) th,
+table:not([class*='fc-']) td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+table:not([class*='fc-']) th {
+    background-color: #f8f9fa;
+    color: var(--text);
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+table:not([class*='fc-']) tr:hover {
+    background-color: #f8f9fa;
+}
+
+table:not([class*='fc-']) tr:last-child td {
+    border-bottom: none;
+}
+
+.archived {
+    opacity: 0.6;
+    background-color: #f8f9fa;
+}
+
+/* ==========================================================================
+   8. BOUTONS D'ACTION
+   ========================================================================== */
+.action-btn {
+    display: inline-block;
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    border-radius: 5px;
+    text-decoration: none;
+    color: var(--white) !important;
+    text-align: center;
+    margin: 3px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.charge-btn { background: var(--success); }
+.return-btn { background: var(--warning); color: #212529 !important; }
+.cancel-btn { background: var(--danger); }
+
+.km_debut {
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+/* ==========================================================================
+   9. STATUS TAGS & MESSAGES
+   ========================================================================== */
+.status-tag {
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-block;
+}
+
+.status-tag.validée, .status-tag.validee { background: #d4edda; color: #155724; }
+.status-tag.en-cours { background: #cce5ff; color: #004085; }
+.status-tag.en-attente { background: #fff3cd; color: #856404; }
+.status-tag.terminée, .status-tag.terminee { background: #e2e3e5; color: #383d41; }
+.status-tag.annulée, .status-tag.annulee { background: #f8d7da; color: #721c24; }
+
+.message {
+    padding: 15px 20px;
+    margin-bottom: 25px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+.message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+/* ==========================================================================
+   10. RESTITUTION CONTAINER
+   ========================================================================== */
+.restitution-container {
+    background: #fff3cd;
+    border: 2px solid #ffeeba;
+    padding: 25px;
+    border-radius: 10px;
+    margin: 0 auto 30px auto;
+    max-width: 650px;
+    box-shadow: var(--shadow-md);
+}
+
+.restitution-container h3 { margin-top: 0; color: #856404; }
+
+/* ==========================================================================
+   11. CALENDRIER FULLCALENDAR (GLOBAL)
+   ========================================================================== */
+#calendar {
+    min-height: 650px;
+    width: 100%;
+}
+
+/* --- FIX CRITIQUE DESKTOP : ISOLATION TOTALE DU CALENDRIER --- */
+/* Ces règles écrasent tous les styles globaux de tableau qui pourraient fuiter */
+.fc table {
+    border-collapse: separate !important; /* Corrige le décalage des colonnes/headers */
+    border-spacing: 0 !important;
+    background: transparent !important;
+    margin: 0 !important;
+    width: 100% !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.fc th, .fc td {
+    padding: 0 !important; /* Corrige les cellules "trop grosses" */
+    border: 1px solid #dee2e6 !important; /* Restaure les bordures fines */
+    vertical-align: top !important;
+}
+
+/* --- FIN FIX --- */
+
+/* GLOBAL : Force la couleur pour aujourd'hui */
+.fc .fc-day-today, 
+.fc .fc-timegrid-col.fc-day-today {
+    background-color: var(--fc-today-bg-color) !important;
+    background: var(--fc-today-bg-color) !important;
+}
+
+.fc .fc-timegrid-slot {
+    background-color: transparent !important;
+}
+
+.fc-toolbar-title { font-size: 1.3em !important; font-weight: 600 !important; }
+.fc-button { padding: 0.5em 0.8em !important; font-size: 0.9rem !important; }
+.fc-today-button { margin-top: 10px !important; }
+
+/* ==========================================================================
+   12. LOGIN CONTAINER
+   ========================================================================== */
+
+.login-container {
+    width: 400px;
+    max-width: 95%;
+    margin: 100px auto;
+    padding: 30px;
+    background-color: var(--white);
+    box-shadow: var(--shadow-lg);
+    border-radius: 10px;
+}
+.login-container h2 { text-align: center; color: var(--primary); margin-bottom: 25px; }
+.login-container label { display: block; margin-top: 15px; font-weight: 600; }
+.login-container input { width: 100%; padding: 12px; margin-top: 8px; border: 1px solid #ccc; border-radius: 6px; }
+.login-container button { width: 100%; padding: 12px; background-color: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 25px; font-size: 1rem; font-weight: 600; }
+
+/* ==========================================================================
+   13. SELECT OPTIONS STYLING
+   ========================================================================== */
+select option.libere { background-color: #fff3cd; color: #856404; font-weight: bold; }
+select option.communal { background-color: #d4edda; color: #155724; }
+select option.perso { font-style: italic; color: #6c757d; }
+
+/* ==========================================================================
+   14. FOOTER
+   ========================================================================== */
+.main-footer {
+    background-color: #343a40;
+    color: #adb5bd;
+    text-align: center;
+    padding: 25px 20px;
+    width: 100%;
+    margin-top: auto;
+    font-size: 0.9rem;
+}
+
+/* ==========================================================================
+   15. RESPONSIVE - TABLETTE (768px - 1024px)
+   ========================================================================== */
+@media screen and (min-width: 768px) and (max-width: 1024px) {
+    .booking-container { flex-direction: column; gap: 20px;}
+    .booking-sidebar { min-width: 100%; max-width: 100%; }
+    .booking-calendar-wrapper { min-width: 100%; }
+    #calendar { min-height: 550px; }
+    nav { gap: 8px; }
+}
+
+/* ==========================================================================
+   16. RESPONSIVE - MOBILE (Max 767px)
+   ========================================================================== */
+@media screen and (max-width: 767px) {
+	
+	
+	.titre-de-connexion {
+  /* Mise en page de base */
+  padding: 20px 40px;
+  display: inline-block; /* Pour que le fond colle au texte */
+  border-radius: 16px;   /* Arrondi moderne */
+  font-family: 'Inter', sans-serif; /* Police propre */
+  font-weight: 800;
+  
+  /* Couleurs et Fond */
+  background-color: #f4f4f4; /* Ton gris original */
+  color: var(--primary);
+  
+  /* L'effet Halo de base (subtil) */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  
+  /* Transition fluide pour l'animation */
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: default;
+  
+  text-align:center;
+}
+
+/* L'EFFET DE SURVOL */
+.titre-de-connexion:hover {
+  /* Le texte brille (Halo sur le texte) */
+  text-shadow: 0 0 20px rgba(99, 102, 241, 0.6);
+  
+  /* Le fond change légèrement */
+  background-color: #ffffff;
+  
+  /* L'effet Halo externe (autour de la boite) */
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.25);
+  
+  /* Petit mouvement vers le haut */
+  transform: translateY(-5px) scale(1.02);
+}
+	
+	.time-group {
+    flex-direction: column; /* Empile les champs verticalement */
+    gap: 15px;
+	}
+
+	.time-group div {
+    width: 100% !important; /* Force la largeur totale */
+    flex: auto !important;  /* Annule le style inline flex: 2 et flex: 1 du PHP */
+	}
+
+	/* Correctif spécifique iOS pour empêcher le zoom et l'overflow */
+	input[type="date"], input[type="text"], input[type="time"] {
+    min-width: 0; 
+    width: 100%;
+    -webkit-appearance: none; /* Retire le style natif iOS bombé */
+	}
+	
+    body { font-size: 15px; }
+    .content { padding: 15px 12px; }
+    
+    /* Header */
+    .main-header { flex-direction: column; padding: 15px 12px; }
+    
+    /* C'est ici que .header-content (.main-header > div) est redéfini pour le mobile */
+    .main-header > div { width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+    
+    .main-header h1 { font-size: 1.3rem; text-align: left; }
+    .menu-toggle { display: block; }
+    
+    /* Nav */
+    nav { display: none; flex-direction: column; width: 100%; gap: 8px; margin-top: 15px; }
+    nav.active { display: flex; }
+    nav a { width: 100%; display: block; background: rgba(255,255,255,0.15); padding: 12px; text-align: center; }
+    nav span { display: none; }
+    .user-info { width: 100%; margin: 5px 0; text-align: center; }
+    
+    /* Layout */
+    .booking-container { flex-direction: column; gap: 15px; }
+    .booking-sidebar, .booking-calendar-wrapper { width: 100%; padding: 18px; }
+    
+    /* Calendar Mobile */
+    #calendar { min-height: 450px; font-size: 0.85rem; }
+    .fc-toolbar.fc-header-toolbar { flex-direction: column; gap: 12px; }
+    .fc-toolbar-chunk { display: block; width: 100%; text-align: center; }
+    
+    /* MODE CARTE pour les tableaux standards UNIQUEMENT */
+    table:not([class*='fc-']) { display: block; overflow-x: auto; }
+    table:not([class*='fc-']) thead { position: absolute; top: -9999px; left: -9999px; }
+    table:not([class*='fc-']) tbody, table:not([class*='fc-']) tr { display: block; width: 100%; }
+    table:not([class*='fc-']) tr { margin-bottom: 15px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    table:not([class*='fc-']) td { display: block; text-align: right; padding: 10px 15px; position: relative; padding-left: 50%; border-bottom: 1px solid #eee; }
+    
+    /* Gestion des labels */
+    table:not([class*='fc-']) td:before { content: attr(data-label); position: absolute; left: 15px; top: 10px; font-weight: 700; color: #555; }
+    
+    /* CORRECTION ACTIONS (Centrage & Suppression label) */
+    table:not([class*='fc-']) td:last-child { 
+        text-align: center; 
+        padding-left: 15px; 
+        padding-top: 15px;
+        padding-bottom: 15px;
+    }
+    /* On cache le label "Actions" par défaut */
+    table:not([class*='fc-']) td:last-child:before { 
+        content: none; 
+        display: none; 
+    }
+
+    /* --- EXCEPTION POUR LE PLANNING (Restore le label du dernier champ qui est Motif) --- */
+    table.planning-table td:last-child {
+        text-align: right; 
+        /*padding-left: 50%; /* On remet le padding pour le label */
+    }
+    table.planning-table td:last-child:before {
+        content: attr(data-label);
+        display: block; /* On réaffiche le label */
+    }
+
+    table.historique-global-table td:last-child {
+        text-align: right; 
+        /*padding-left: 50%; /* On remet le padding pour le label */
+    }
+
+    table.historique-global-table td:last-child:before {
+        content: attr(data-label);
+        display: block; /* On réaffiche le label */
+    }
+
+    /* --- RESET ET FIX CALENDRIER MOBILE (CRITIQUE) --- */
+    /* 1. On force le tableau à être transparent pour voir le fond */
+    .fc table {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: separate !important;
+        background: transparent !important; /* LA CLÉ DU PROBLÈME */
+    }
+    
+    .fc tbody, .fc thead, .fc tr, .fc td, .fc th {
+        display: table-row-group !important;
+    }
+    
+    .fc tr { 
+        display: table-row !important; 
+        margin: 0 !important; 
+        border: inherit !important; 
+        box-shadow: none !important;
+        background: transparent !important; /* LA CLÉ DU PROBLÈME */
+    }
+    
+    .fc td, .fc th { display: table-cell !important; padding: 0 !important; text-align: center !important; }
+    .fc td:before { content: none !important; }
+
+    /* 2. On RE-FORCE la couleur jaune explicitement pour le mobile */
+    .fc .fc-day-today, 
+    .fc .fc-timegrid-col.fc-day-today {
+        background: var(--fc-today-bg-color) !important;
+        background-color: var(--fc-today-bg-color) !important;
+    }
+}
+
+/* ==========================================================================
+   17. RESPONSIVE - TRÈS PETIT MOBILE (Max 375px)
+   ========================================================================== */
+@media screen and (max-width: 375px) {
+    .main-header h1 { font-size: 1.15rem; }
+    .content { padding: 12px 10px; }
+    #calendar { min-height: 400px; }
+}
+
+/* ==========================================================================
+   18. UTILITIES
+   ========================================================================== */
+.text-center { text-align: center; }
+.text-muted { color: #6c757d; font-size: 0.85em; }
+.text-danger { color: #dc3545; font-weight: bold; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 30px 0; }
+html { scroll-behavior: smooth; }
+@media print { .main-header, .main-footer, nav, .action-btn { display: none; } }

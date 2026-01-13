@@ -1,0 +1,20 @@
+# 1. Protection contre le listage des dossiers (Sécurité générale)
+Options -Indexes
+
+# 2. Protection spécifique du fichier d'administration
+<Files "admin_2fa.php">
+    AuthType Basic
+    AuthName "Acces Restreint Administration 2FA"
+    
+    # REMPLACEZ LE CHEMIN CI-DESSOUS par celui trouvé à l'étape 1
+    # Exemple type OVH : /home/identifiant/www/coop_resa/.htpasswd
+    AuthUserFile /home/terracoonz/www/.htpasswd
+    
+    Require valid-user
+</Files>
+
+# 3. Interdire l'accès direct au fichier .htpasswd lui-même
+<Files ".htpasswd">
+    Order allow,deny
+    Deny from all
+</Files>
