@@ -11,6 +11,7 @@ define('DB_SERVER', 'localhost');
 define('DB_USERNAME', 'admin');
 define('DB_PASSWORD', 'admin'); // À ajuster
 define('DB_NAME', 'db_coop'); // À ajuster*/
+define('PASS_ADMIN_TOTP', 'admin'); // À ajuster*/
 
 // Connexion à la base de données MySQL
 $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
