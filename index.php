@@ -34,6 +34,7 @@ if ($message) {
 
 // 1. Restitution
 if (isset($_POST['restitution_submit'])) {
+	check_csrf();
     $id_resa = (int)$_POST['id_reservation'];
     $km_fin = (int)$_POST['km_fin'];
     
@@ -59,6 +60,7 @@ if (isset($_POST['restitution_submit'])) {
 
 // 2. Prise en charge
 if (isset($_POST['prise_en_charge_submit'])) {
+	check_csrf();
     $id_resa = (int)$_POST['id_reservation'];
     $km_debut = (int)$_POST['km_debut'];
 	// On récupère le commentaire de départ
@@ -75,6 +77,7 @@ if (isset($_POST['prise_en_charge_submit'])) {
 
 // 3. Nouvelle Réservation
 if (isset($_POST['reservation_submit'])) {
+	check_csrf();
     $id_vehicule = (int)$_POST['id_vehicule'];
     $motif = $_POST['motif'];
     $jour = $_POST['date_resa'];         
@@ -253,7 +256,7 @@ $historique = $stmt_h->get_result();
     <div class="booking-sidebar">
         <h3>📝 Réserver</h3>
         <form action="index.php" method="POST" id="formResa">
-		check_csrf();
+		<?php csrf_field(); ?>
             <input type="hidden" name="reservation_submit" value="1">
             
             <label>Véhicule :</label>
@@ -352,6 +355,7 @@ $historique = $stmt_h->get_result();
                     
                     <!-- FORMULAIRE DE DÉPART (MODIFIÉ) -->
                     <form action="index.php" method="POST" style="margin-bottom:10px; width:100%;">
+					<?php csrf_field(); ?>
                         <input type="hidden" name="prise_en_charge_submit" value="1">
                         <input type="hidden" name="id_reservation" value="<?php echo $row['id_reservation']; ?>">
                         
