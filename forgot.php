@@ -18,6 +18,7 @@ $message = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	check_csrf();
     // Récupérer l'entrée qui peut être un email ou un nom d'utilisateur
     $input = trim($_POST['input'] ?? '');
 
@@ -142,6 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
 
     <form method="POST" action="forgot.php">
+	<?php csrf_field(); ?>
         <div>
             <label for="input">E-mail ou Nom d'utilisateur :</label>
             <input type="text" id="input" name="input" required>

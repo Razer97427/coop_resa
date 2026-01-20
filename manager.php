@@ -1,12 +1,21 @@
 <?php
 require_once 'config.php'; 
-include 'includes/header.php';
 
-// Vérification Manager
-if (($_SESSION['user_role'] ?? '') !== 'Manager') {
-    echo "<script>window.location.href='index.php';</script>";
+
+// 1. Vérification de connexion et de rôle (Côté Serveur)
+if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // Redirection propre et sécurisée
+    header("Location: index.php");
     exit();
 }
+
+include 'includes/header.php';
+
+// // Vérification Manager
+// if (($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // echo "<script>window.location.href='index.php';</script>";
+    // exit();
+// }
 
 // --- 1. LOGIQUE DE VALIDATION / REFUS ---
 if (isset($_GET['action']) && isset($_GET['id'])) {

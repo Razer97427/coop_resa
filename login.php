@@ -9,6 +9,7 @@ if (session_status() === PHP_SESSION_NONE) {
 $error_message = '';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $matricule = trim($_POST['matricule'] ?? '');
     $password_saisi = $_POST['password'] ?? '';
 
@@ -150,7 +151,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <form action="login.php" method="POST">
         <div class="input-group">
-            <label for="matricule">Matricule</label>
+            <?php csrf_field(); ?> <label for="matricule">Matricule</label>
             <input type="text" id="matricule" name="matricule" required autofocus placeholder="Entrez votre matricule">
         </div>
         

@@ -27,4 +27,28 @@ $conn->query("SET time_zone = '+04:00'");
 // NOTE: Pour les tests, nous allons initialiser un utilisateur "Manager" ou "Employé" 
 // si aucune session n'est active et qu'on est sur une page critique (mais login.php gère ça)
 // L'inclusion de 'includes/header.php' s'occupe de la redirection si l'utilisateur n'est pas logué.
+
+// Génération d'un jeton CSRF s'il n'existe pas
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+/**
+ * Vérifie si le token reçu correspond à celui en session
+ */
+function check_csrf() {
+    if ($_SERVER["REQUEST_METHOD"] === "POST") {
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+            // Log l'erreur pour l'admin et stop tout
+            die("Erreur de sécurité : Tentative de faille CSRF détectée.");
+        }
+    }
+}
+
+/**
+ * Génère le champ HTML caché à insérer dans les formulaires
+ */
+function csrf_field() {
+    echo '<input type="hidden" name="csrf_token" value="' . $_SESSION['csrf_token'] . '">';
+}
 ?>

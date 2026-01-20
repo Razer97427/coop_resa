@@ -16,6 +16,7 @@ if (!isset($_SESSION['2fa_pending_user_id'])) {
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $code = trim($_POST['code']);
     $user_id = $_SESSION['2fa_pending_user_id'];
 
@@ -35,6 +36,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $checkResult = $ga->verifyCode($user['two_fa_secret'], $code, 2); // 2 = marge de tolérance (2x30sec)
 
         if ($checkResult) {
+			
+			// SUPPRESSION ID DE SESSION POUR EVITER VOL DE SESSION
+			session_regenerate_id(true);
             // Code OK : On connecte réellement l'utilisateur
             // On recrée les variables de session comme dans le login classique
             $_SESSION['user_id'] = $user['id_employe'];
@@ -86,7 +90,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <p>Veuillez entrer le code à 6 chiffres généré par votre application mobile.</p>
         
         <form method="post">
-            <input type="text" name="code" placeholder="000 000" required autocomplete="off" autofocus maxlength="6" pattern="[0-9]*" inputmode="numeric">
+            <?php csrf_field(); ?> <input type="text" name="code" placeholder="000 000" required autocomplete="off" autofocus maxlength="6" pattern="[0-9]*" inputmode="numeric">
             <button type="submit">Vérifier</button>
         </form>
         

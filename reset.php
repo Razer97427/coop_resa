@@ -33,6 +33,7 @@ if (empty($token) || strlen($token) !== 64) {
 
 // 2. TRAITEMENT DU FORMULAIRE DE NOUVEAU MOT DE PASSE (si le jeton est valide)
 if ($user_id > 0 && $_SERVER['REQUEST_METHOD'] === 'POST') {
+	check_csrf();
     $new_password = $_POST['new_password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
 
@@ -97,6 +98,7 @@ if ($user_id > 0 && $_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php if ($user_id > 0 && !$message): ?>
         <p>Veuillez entrer votre nouveau mot de passe.</p>
         <form method="post" action="reset.php?token=<?php echo htmlspecialchars($token); ?>">
+		<?php csrf_field(); ?>
             <div>
                 <label for="new_password">Nouveau mot de passe :</label>
                 <input type="password" id="new_password" name="new_password" required>

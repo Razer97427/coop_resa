@@ -1,8 +1,16 @@
 <?php
 require_once 'config.php'; 
+
+// 1. Vérification de connexion et de rôle (Côté Serveur)
+if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // Redirection propre et sécurisée
+    header("Location: index.php");
+    exit();
+}
+
 include 'includes/header.php';
 
-if (($_SESSION['user_role'] ?? '') !== 'Manager') exit();
+// if (($_SESSION['user_role'] ?? '') !== 'Manager') exit();
 
 // Supprimer
 if (isset($_GET['action']) && $_GET['action'] == 'supprimer') {
@@ -12,6 +20,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'supprimer') {
 
 // Ajouter
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $id_emp = (int)$_POST['id_employe'];
     $id_veh = (int)$_POST['id_vehicule'];
     
@@ -98,7 +107,7 @@ $list = $conn->query("SELECT af.id_affectation, e.nom, e.prenom, e.matricule, v.
 <div class="form-container">
     <h3>Nouvelle Affectation</h3>
     <form action="affectations.php" method="POST">
-        
+	<?php csrf_field(); ?>
         <!-- EMPLOYÉS -->
         <label>Employé (sans véhicule)</label>
         <!-- On garde le select caché pour la soumission du formulaire -->
@@ -111,7 +120,7 @@ $list = $conn->query("SELECT af.id_affectation, e.nom, e.prenom, e.matricule, v.
             <?php endwhile; ?>
         </select>
         <!-- Champ de recherche visible -->
-        <div class="searchable-select" id="container_employe">
+         <div class="searchable-select" id="container_employe">
             <input type="text" class="search-input" placeholder="Rechercher nom, prénom ou matricule..." autocomplete="off">
             <div class="options-list"></div>
         </div>

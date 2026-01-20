@@ -3,16 +3,25 @@ require_once 'config.php';
 include 'includes/header.php';
 
 // Sécurité : Seul le Manager accède ici
-if (($_SESSION['user_role'] ?? '') !== 'Manager') {
-    echo "<script>window.location.href='index.php';</script>";
+// if (($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // echo "<script>window.location.href='index.php';</script>";
+    // exit();
+// }
+
+// 1. Vérification de connexion et de rôle (Côté Serveur)
+if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // Redirection propre et sécurisée
+    header("Location: index.php");
     exit();
 }
+
 
 $message = '';
 $message_type = '';
 
 // Ajout Employé
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $matricule = trim($_POST['matricule'] ?? '');
     $nom = trim($_POST['nom'] ?? '');
     $prenom = trim($_POST['prenom'] ?? '');
@@ -58,6 +67,7 @@ $employes = $conn->query("SELECT * FROM employes ORDER BY actif DESC, nom ASC");
 <div class="form-container">
     <h3>Ajouter un employé</h3>
     <form action="employes.php" method="POST">
+	<?php csrf_field(); ?>
         <label>Matricule</label>
         <input type="text" name="matricule" required placeholder="Ex: M-2024" maxlength="20">
 

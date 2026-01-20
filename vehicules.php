@@ -6,6 +6,7 @@ if (($_SESSION['user_role'] ?? '') !== 'Manager') exit();
 
 // --- 1. AJOUT D'UN VÉHICULE ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $immat = $_POST['immatriculation'];
     $marque = $_POST['marque'];
     $modele = $_POST['modele'];
@@ -167,6 +168,7 @@ $list = $stmt_list->get_result();
 <div class="form-container">
     <h3>Ajouter un véhicule</h3>
     <form action="vehicules.php" method="POST">
+	<?php csrf_field(); ?>
         <label>Immatriculation</label>
         <input type="text" name="immatriculation" required placeholder="Ex: AA-123-BB">
         

@@ -2,7 +2,14 @@
 require_once 'config.php'; 
 include 'includes/header.php';
 
-if (($_SESSION['user_role'] ?? '') !== 'Manager') exit();
+// if (($_SESSION['user_role'] ?? '') !== 'Manager') exit();
+// 1. Vérification de connexion et de rôle (Côté Serveur)
+if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'Manager') {
+    // Redirection propre et sécurisée
+    header("Location: index.php");
+    exit();
+}
+
 
 $message = isset($_GET['message']) ? urldecode($_GET['message']) : '';
 $message_type = isset($_GET['type']) ? $_GET['type'] : '';
@@ -17,6 +24,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'supprimer' && isset($_GET['id'
 
 // Ajout
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $id_emp = (int)$_POST['id_employe'];
     $debut = $_POST['date_debut'];
     $fin = $_POST['date_fin'];
@@ -50,6 +58,7 @@ $conges = $conn->query("SELECT c.*, e.nom, e.prenom FROM conges c JOIN employes 
 <div class="form-container">
     <h3>Déclarer une absence (Libère le véhicule attitré)</h3>
     <form action="conges.php" method="POST">
+	<?php csrf_field(); ?>
         <label>Employé</label>
         <select name="id_employe" required>
             <option value="">-- Sélectionner --</option>

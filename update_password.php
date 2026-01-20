@@ -15,6 +15,7 @@ $message_type = ""; // 'success' ou 'error'
 
 // 2. Traitement du formulaire
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+	check_csrf();
     $new_pass = $_POST['new_password'] ?? '';
     $confirm_pass = $_POST['confirm_password'] ?? '';
 
@@ -99,6 +100,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <?php endif; ?>
 
     <form method="POST" action="" onsubmit="return confirmerModification()">
+	<?php csrf_field(); ?>
         <div class="form-group">
             <label for="new_password">Nouveau mot de passe :</label>
             <input type="password" id="new_password" name="new_password" required placeholder="Entrez le nouveau mot de passe">

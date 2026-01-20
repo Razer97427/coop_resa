@@ -228,6 +228,7 @@ $historique = $stmt_h->get_result();
         <p>KM Départ : <strong><?php echo $resa_data['km_debut']; ?> km</strong></p>
         
         <form action="index.php" method="POST">
+		<?php csrf_field(); ?>
             <input type="hidden" name="restitution_submit" value="1">
             <input type="hidden" name="id_reservation" value="<?php echo $restitution_id; ?>">
             
@@ -252,6 +253,7 @@ $historique = $stmt_h->get_result();
     <div class="booking-sidebar">
         <h3>📝 Réserver</h3>
         <form action="index.php" method="POST" id="formResa">
+		check_csrf();
             <input type="hidden" name="reservation_submit" value="1">
             
             <label>Véhicule :</label>
