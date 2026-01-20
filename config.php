@@ -7,7 +7,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-define('DB_SERVER', '192.168.5.186');
+define('DB_SERVER', 'localhost');
 define('DB_USERNAME', 'admin');
 define('DB_PASSWORD', 'admin'); // À ajuster
 define('DB_NAME', 'db_coop'); // À ajuster*/
