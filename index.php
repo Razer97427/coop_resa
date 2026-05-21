@@ -52,6 +52,13 @@ if (isset($_POST['reservation_submit'])) {
                         $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
                         $mail->Port       = smtp_port;
                         $mail->CharSet    = 'UTF-8';
+                        $mail->SMTPOptions = [
+                            'ssl' => [
+                                'verify_peer'       => false,
+                                'verify_peer_name'  => false,
+                                'allow_self_signed' => true,
+                            ]
+                        ];
 
                         $mail->setFrom(smtp_from, 'Gestion Flotte TERRACOOP');
                         $mail->addAddress($mgr['email'], $mgr['prenom'] . ' ' . $mgr['nom']);

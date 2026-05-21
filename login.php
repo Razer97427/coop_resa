@@ -238,6 +238,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
             <button type="submit" class="btn-login">Se connecter</button>
         </form>
+
+        <a href="forgot.php" style="display:block; text-align:center; margin-top:14px; font-size:0.83rem; color:#6c757d; text-decoration:none;">
+            Mot de passe oublié ?
+        </a>
     </div>
 
 </div>
