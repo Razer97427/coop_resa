@@ -37,14 +37,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if ($checkResult) {
             // Code OK : On connecte réellement l'utilisateur
             // On recrée les variables de session comme dans le login classique
-            $_SESSION['user_id'] = $user['id_employe'];
-            $_SESSION['user_name'] = $user['prenom'] . ' ' . $user['nom'];
-            $_SESSION['user_role'] = $user['role'];
+            $session_token = bin2hex(random_bytes(32));
+            $login_ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+            $login_ua      = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
-            // On peut ajouter le matricule si besoin
-            $_SESSION['matricule'] = $user['matricule'];
+            $ins_s = $conn->prepare("INSERT INTO sessions_auto (user_id, session_token, ip, user_agent, login_time, last_activity) VALUES (?, ?, ?, ?, NOW(), NOW())");
+            $ins_s->bind_param("isss", $user['id_employe'], $session_token, $login_ip, $login_ua);
+            $ins_s->execute();
+            $ins_s->close();
 
-            // On nettoie la variable temporaire de 2FA
+            $_SESSION['user_id']       = $user['id_employe'];
+            $_SESSION['user_name']     = $user['prenom'] . ' ' . $user['nom'];
+            $_SESSION['user_role']     = $user['role'];
+            $_SESSION['matricule']     = $user['matricule'];
+            $_SESSION['session_token'] = $session_token;
+
             unset($_SESSION['2fa_pending_user_id']);
 
             // Redirection selon le rôle

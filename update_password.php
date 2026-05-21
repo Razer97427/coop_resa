@@ -1,5 +1,9 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -10,8 +14,21 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = (int)$_SESSION['user_id'];
-$message = '';
-$message_type = '';
+$message       = '';
+$message_type  = '';
+$email_message = '';
+$email_type    = '';
+
+// Table de vérification email
+$conn->query("CREATE TABLE IF NOT EXISTS email_verif_auto (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    new_email VARCHAR(255) NOT NULL,
+    token VARCHAR(64) NOT NULL UNIQUE,
+    token_expiry DATETIME NOT NULL,
+    INDEX idx_token (token),
+    INDEX idx_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $stmt = $conn->prepare("SELECT nom, prenom, matricule, email, role, two_fa_secret, mot_de_passe FROM employes WHERE id_employe = ?");
 $stmt->bind_param("i", $user_id);
@@ -19,7 +36,10 @@ $stmt->execute();
 $employe = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$action = $_POST['action'] ?? '';
+
+// ── Changement de mot de passe ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_password') {
     $current_pass = $_POST['current_password'] ?? '';
     $new_pass     = $_POST['new_password']     ?? '';
     $confirm_pass = $_POST['confirm_password'] ?? '';
@@ -50,6 +70,144 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt2->close();
     }
 }
+
+// ── Changement d'adresse e-mail ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_email') {
+    $new_email = trim($_POST['new_email'] ?? '');
+
+    if (empty($new_email)) {
+        $email_message = "Veuillez saisir une adresse e-mail.";
+        $email_type    = "error";
+    } elseif (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
+        $email_message = "L'adresse e-mail saisie n'est pas valide.";
+        $email_type    = "error";
+    } elseif (strtolower($new_email) === strtolower($employe['email'] ?? '')) {
+        $email_message = "Cette adresse est déjà votre adresse actuelle.";
+        $email_type    = "error";
+    } else {
+        // Vérifier si l'email est déjà utilisé par un autre employé
+        $chk = $conn->prepare("SELECT id_employe FROM employes WHERE email = ? AND id_employe != ?");
+        $chk->bind_param("si", $new_email, $user_id);
+        $chk->execute();
+        $already_used = $chk->get_result()->num_rows > 0;
+        $chk->close();
+
+        if ($already_used) {
+            $email_message = "Cette adresse e-mail est déjà utilisée par un autre compte.";
+            $email_type    = "error";
+        } else {
+            $token  = bin2hex(random_bytes(32));
+            $expiry = date("Y-m-d H:i:s", time() + 3600); // 1 heure
+
+            // Supprimer toute demande en attente pour cet utilisateur
+            $del = $conn->prepare("DELETE FROM email_verif_auto WHERE user_id = ?");
+            $del->bind_param("i", $user_id);
+            $del->execute();
+            $del->close();
+
+            $ins = $conn->prepare("INSERT INTO email_verif_auto (user_id, new_email, token, token_expiry) VALUES (?, ?, ?, ?)");
+            $ins->bind_param("isss", $user_id, $new_email, $token, $expiry);
+            $ins->execute();
+            $ins->close();
+
+            $protocol    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $base_path   = rtrim(dirname($_SERVER['PHP_SELF']), '/');
+            $verify_link = $protocol . '://' . $_SERVER['HTTP_HOST'] . $base_path . '/verify_email.php?token=' . $token;
+
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host       = smtp_host;
+                $mail->SMTPAuth   = true;
+                $mail->Username   = smtp_username;
+                $mail->Password   = smtp_password;
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = smtp_port;
+                $mail->CharSet    = 'UTF-8';
+                $mail->SMTPOptions = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
+
+                $mail->setFrom(smtp_from, 'Gestion Flotte TERRACOOP');
+                $mail->addAddress($new_email, $employe['prenom'] . ' ' . $employe['nom']);
+
+                $mail->isHTML(false);
+                $mail->Subject = 'Confirmation de votre nouvelle adresse e-mail — TERRACOOP';
+                $mail->Body    = "Bonjour " . $employe['prenom'] . " " . $employe['nom'] . ",\n\n"
+                               . "Vous avez demandé à associer cette adresse e-mail à votre compte TERRACOOP.\n\n"
+                               . "Cliquez sur le lien ci-dessous pour confirmer :\n"
+                               . $verify_link . "\n\n"
+                               . "Ce lien est valable 1 heure.\n"
+                               . "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.\n\n"
+                               . "— Service Informatique TERRACOOP";
+
+                $mail->send();
+            } catch (Exception $e) {
+                error_log("[EMAIL VERIF] Échec envoi vers " . $new_email . " — " . $mail->ErrorInfo);
+            }
+
+            $email_message = "Un e-mail de confirmation a été envoyé à <strong>" . htmlspecialchars($new_email) . "</strong>. Cliquez sur le lien reçu pour valider le changement.";
+            $email_type    = "success";
+        }
+    }
+}
+
+// ── Renvoi du lien de confirmation ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'resend_email_verif') {
+    $stmt_rv = $conn->prepare("SELECT new_email FROM email_verif_auto WHERE user_id = ?");
+    $stmt_rv->bind_param("i", $user_id);
+    $stmt_rv->execute();
+    $rv = $stmt_rv->get_result()->fetch_assoc();
+    $stmt_rv->close();
+
+    if ($rv) {
+        $token_new  = bin2hex(random_bytes(32));
+        $expiry_new = date("Y-m-d H:i:s", time() + 3600);
+
+        $upd_rv = $conn->prepare("UPDATE email_verif_auto SET token = ?, token_expiry = ? WHERE user_id = ?");
+        $upd_rv->bind_param("ssi", $token_new, $expiry_new, $user_id);
+        $upd_rv->execute();
+        $upd_rv->close();
+
+        $protocol    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $base_path   = rtrim(dirname($_SERVER['PHP_SELF']), '/');
+        $verify_link = $protocol . '://' . $_SERVER['HTTP_HOST'] . $base_path . '/verify_email.php?token=' . $token_new;
+
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host       = smtp_host;
+            $mail->SMTPAuth   = true;
+            $mail->Username   = smtp_username;
+            $mail->Password   = smtp_password;
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = smtp_port;
+            $mail->CharSet    = 'UTF-8';
+            $mail->SMTPOptions = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
+            $mail->setFrom(smtp_from, 'Gestion Flotte TERRACOOP');
+            $mail->addAddress($rv['new_email'], $employe['prenom'] . ' ' . $employe['nom']);
+            $mail->isHTML(false);
+            $mail->Subject = 'Confirmation de votre nouvelle adresse e-mail — TERRACOOP';
+            $mail->Body    = "Bonjour " . $employe['prenom'] . " " . $employe['nom'] . ",\n\n"
+                           . "Voici votre nouveau lien de confirmation d'adresse e-mail :\n"
+                           . $verify_link . "\n\n"
+                           . "Ce lien est valable 1 heure.\n\n"
+                           . "— Service Informatique TERRACOOP";
+            $mail->send();
+        } catch (Exception $e) {
+            error_log("[EMAIL VERIF RESEND] Échec vers " . $rv['new_email'] . " — " . $mail->ErrorInfo);
+        }
+
+        $email_message = "Lien renvoyé à <strong>" . htmlspecialchars($rv['new_email']) . "</strong>.";
+        $email_type    = "success";
+    }
+}
+
+// Vérification d'une demande de changement email en attente
+$pending_verif = null;
+$stmt_pv = $conn->prepare("SELECT new_email FROM email_verif_auto WHERE user_id = ? AND token_expiry > NOW()");
+$stmt_pv->bind_param("i", $user_id);
+$stmt_pv->execute();
+$pending_verif = $stmt_pv->get_result()->fetch_assoc();
+$stmt_pv->close();
 
 $initiales = strtoupper(substr($employe['prenom'] ?? 'U', 0, 1) . substr($employe['nom'] ?? '', 0, 1));
 $a2fa_actif = !empty($employe['two_fa_secret']);
@@ -399,6 +557,7 @@ $a2fa_actif = !empty($employe['two_fa_secret']);
             <?php endif; ?>
 
             <form method="POST" action="">
+                <input type="hidden" name="action" value="change_password">
                 <div class="pw-form-grid">
                     <div class="field-group">
                         <label for="current_password">Mot de passe actuel</label>
@@ -437,6 +596,91 @@ $a2fa_actif = !empty($employe['two_fa_secret']);
                 </div>
                 <button type="submit" class="btn-save">Enregistrer le nouveau mot de passe</button>
             </form>
+        </div>
+    </div>
+
+    <!-- ── Adresse e-mail ── -->
+    <div class="settings-card">
+        <div class="settings-card-header">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+            </svg>
+            <h2>Adresse e-mail</h2>
+        </div>
+        <div class="settings-card-body">
+
+            <?php if ($email_message): ?>
+                <div class="msg-box <?php echo $email_type; ?>">
+                    <?php if ($email_type === 'success'): ?>
+                        <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" style="flex-shrink:0;margin-top:1px"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                    <?php else: ?>
+                        <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" style="flex-shrink:0;margin-top:1px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                    <?php endif; ?>
+                    <span><?php echo $email_message; ?></span>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($employe['email'])): ?>
+                <div style="margin-bottom:16px; padding:10px 14px; background:#f8f9fa; border-radius:7px; font-size:.88rem; color:#495057;">
+                    Adresse actuelle : <strong><?php echo htmlspecialchars($employe['email']); ?></strong>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($pending_verif && $email_type !== 'error'): ?>
+                <div style="margin-bottom:18px; padding:13px 15px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; font-size:.85rem; color:#795548;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="flex-shrink:0;color:#f59e0b"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        <span>Confirmation en attente pour <strong><?php echo htmlspecialchars($pending_verif['new_email']); ?></strong>. Vérifiez votre boîte mail.</span>
+                    </div>
+                    <div style="font-size:.8rem; color:#9e7c2e; margin-bottom:12px;">
+                        Vous n'avez pas reçu l'e-mail ? Vérifiez vos spams, puis renvoyez le lien.
+                    </div>
+                    <form method="POST" action="">
+                        <input type="hidden" name="action" value="resend_email_verif">
+                        <button type="submit" id="btnResend" class="btn-save" style="background:#f59e0b; font-size:.85rem; padding:8px 18px;" disabled>
+                            <span id="resendLabel">Renvoyer le lien (<span id="countdown">30</span>s)</span>
+                        </button>
+                    </form>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" action="">
+                <input type="hidden" name="action" value="change_email">
+                <div class="field-group">
+                    <label for="new_email"><?php echo empty($employe['email']) ? 'Ajouter une adresse e-mail' : 'Nouvelle adresse e-mail'; ?></label>
+                    <div class="input-wrap">
+                        <input type="email" id="new_email" name="new_email" placeholder="prenom.nom@exemple.com"
+                               value="<?php echo htmlspecialchars($_POST['new_email'] ?? ''); ?>">
+                    </div>
+                </div>
+                <button type="submit" class="btn-save">Envoyer le lien de confirmation</button>
+            </form>
+
+            <p style="margin-top:12px; font-size:.78rem; color:#888; line-height:1.5;">
+                Un e-mail de confirmation sera envoyé à la nouvelle adresse. Le changement sera effectif uniquement après validation du lien reçu (valable 1 heure).
+            </p>
+
+            <?php if ($pending_verif): ?>
+            <script>
+            (function() {
+                let s = 30;
+                const btn   = document.getElementById('btnResend');
+                const cd    = document.getElementById('countdown');
+                const label = document.getElementById('resendLabel');
+                const t = setInterval(() => {
+                    s--;
+                    if (s <= 0) {
+                        clearInterval(t);
+                        btn.disabled = false;
+                        label.textContent = 'Renvoyer le lien';
+                        btn.style.background = '#007bff';
+                    } else {
+                        cd.textContent = s;
+                    }
+                }, 1000);
+            })();
+            </script>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -486,10 +730,16 @@ $a2fa_actif = !empty($employe['two_fa_secret']);
                 </span>
             </div>
 
-            <?php if (!$a2fa_actif || empty($employe['email'])): ?>
+            <?php if (!$a2fa_actif): ?>
             <div style="margin-top:16px; padding:12px 14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; font-size:0.82rem; color:#795548; display:flex; align-items:flex-start; gap:8px;">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="flex-shrink:0;margin-top:1px;color:#f59e0b"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
-                <span>Pour activer la 2FA ou renseigner votre e-mail, contactez le <strong>service informatique</strong>.</span>
+                <span>La double authentification n'est pas activée. Contactez le <strong>service informatique</strong> pour la configurer.</span>
+            </div>
+            <?php endif; ?>
+            <?php if (empty($employe['email'])): ?>
+            <div style="margin-top:10px; padding:12px 14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; font-size:0.82rem; color:#795548; display:flex; align-items:flex-start; gap:8px;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="flex-shrink:0;margin-top:1px;color:#f59e0b"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                <span>Aucun e-mail renseigné — ajoutez-en un via la section ci-dessus. Si vous ne recevez pas le lien de confirmation, contactez le <strong>service informatique</strong>.</span>
             </div>
             <?php endif; ?>
 

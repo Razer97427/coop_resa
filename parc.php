@@ -262,6 +262,68 @@ tr.no-result td {
     font-style: italic;
 }
 
+/* ── Pagination ── */
+.pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+.pag-per-page {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: .83rem;
+    color: #6c757d;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.pag-per-page select {
+    padding: 5px 8px;
+    border: 1.5px solid #dee2e6;
+    border-radius: 6px;
+    font-size: .83rem;
+    cursor: pointer;
+    background: #fff;
+    color: #495057;
+}
+.pag-info {
+    font-size: .83rem;
+    color: #6c757d;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.pag-buttons {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.pag-btn {
+    min-width: 34px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1.5px solid #dee2e6;
+    border-radius: 6px;
+    background: #fff;
+    color: #495057;
+    font-size: .83rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+    white-space: nowrap;
+    line-height: 1;
+}
+.pag-btn:hover { background: #e8f0fe; border-color: #007bff; color: #007bff; }
+.pag-btn.pag-active { background: #007bff !important; border-color: #007bff !important; color: #fff !important; font-weight: 700; cursor: default; }
+.pag-btn.pag-active:hover { background: #007bff; }
+.pag-dots { padding: 0 2px; color: #adb5bd; font-size: .85rem; line-height: 32px; }
+
 /* ── Formulaire affectation ── */
 .aff-search-group {
     position: relative;
@@ -369,6 +431,18 @@ tr.no-result td {
     /* ── Ligne expandable absences : forcer pleine largeur ── */
     #tableAbs tr[id^="detail-"] td { padding-left: 0 !important; text-align: left !important; }
     #tableAbs tr[id^="detail-"] td:before { content: none !important; }
+
+    /* ── Pagination mobile ── */
+    .pagination-bar {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 12px;
+    }
+    .pag-per-page { display: none; }
+    .pag-buttons { flex-wrap: wrap; justify-content: center; gap: 4px; }
+    .pag-btn { min-width: 38px; height: 38px; font-size: .88rem; }
+    .pag-dots { line-height: 38px; }
 }
 </style>
 
@@ -492,7 +566,13 @@ tr.no-result td {
     </tbody>
 </table>
 
+<div id="paginationVeh"></div>
+
 <script>
+let vehPage    = 1;
+let vehPerPage = 10;
+let vehRows    = []; // lignes filtrées courantes
+
 function filtrerVehicules() {
     const kw   = document.getElementById('searchVeh').value.toLowerCase();
     const type = document.getElementById('filtreTypeVeh').value;
@@ -502,23 +582,77 @@ function filtrerVehicules() {
     document.getElementById('filtreTypeVeh').classList.toggle('active-filter', !!type);
     document.getElementById('filtreEtatVeh').classList.toggle('active-filter', !!etat);
 
-    let nb = 0;
-    document.querySelectorAll('#tableVeh tbody tr:not(.no-result)').forEach(tr => {
-        const ok = (!kw || tr.dataset.search.includes(kw))
-                && (!type || tr.dataset.type === type)
-                && (!etat || tr.dataset.etat === etat);
-        tr.style.display = ok ? '' : 'none';
-        if (ok) nb++;
-    });
-    document.getElementById('countVeh').textContent = nb + ' véhicule' + (nb > 1 ? 's' : '');
-    document.querySelector('#tableVeh .no-result').style.display = nb === 0 ? '' : 'none';
+    const all = Array.from(document.querySelectorAll('#tableVeh tbody tr:not(.no-result)'));
+    vehRows = all.filter(tr =>
+        (!kw   || tr.dataset.search.includes(kw))
+     && (!type || tr.dataset.type === type)
+     && (!etat || tr.dataset.etat === etat)
+    );
+    all.forEach(tr => tr.style.display = 'none');
+    vehPage = 1;
+    afficherPageVeh();
 }
+
+function afficherPageVeh() {
+    const total      = vehRows.length;
+    const totalPages = Math.max(1, Math.ceil(total / vehPerPage));
+    vehPage = Math.min(Math.max(1, vehPage), totalPages);
+
+    const debut = (vehPage - 1) * vehPerPage;
+    const fin   = debut + vehPerPage;
+    vehRows.forEach((tr, i) => tr.style.display = (i >= debut && i < fin) ? '' : 'none');
+
+    document.getElementById('countVeh').textContent = total + ' véhicule' + (total > 1 ? 's' : '');
+    document.querySelector('#tableVeh .no-result').style.display = total === 0 ? '' : 'none';
+    renderPaginationVeh(total, totalPages);
+}
+
+function renderPaginationVeh(total, totalPages) {
+    const el = document.getElementById('paginationVeh');
+    if (total === 0) { el.innerHTML = ''; return; }
+
+    const debut = (vehPage - 1) * vehPerPage + 1;
+    const fin   = Math.min(vehPage * vehPerPage, total);
+
+    const opts = [10, 25, 50].map(n =>
+        `<option value="${n}" ${vehPerPage===n?'selected':''}>${n}</option>`
+    ).join('');
+
+    const s = (extra, label, click, disabled) =>
+        `<span class="pag-btn${extra}" style="cursor:${disabled?'default':'pointer'};opacity:${disabled?.35:1};" ${disabled?'':` onclick="${click}"`}>${label}</span>`;
+
+    let pages = '';
+    for (let p = 1; p <= totalPages; p++) {
+        if (p === 1 || p === totalPages || Math.abs(p - vehPage) <= 1) {
+            pages += s(p === vehPage ? ' pag-active' : '', p, `vehPage=${p};afficherPageVeh();`, false);
+        } else if (Math.abs(p - vehPage) === 2) {
+            pages += '<span class="pag-dots">…</span>';
+        }
+    }
+
+    el.innerHTML = `
+    <div class="pagination-bar">
+        <div class="pag-per-page">
+            <span>Afficher</span>
+            <select onchange="vehPerPage=parseInt(this.value);vehPage=1;afficherPageVeh();">${opts}</select>
+            <span>par page</span>
+        </div>
+        <span class="pag-info">${debut}–${fin} sur <strong>${total}</strong></span>
+        <div class="pag-buttons">
+            ${s(' pag-nav', '← Préc.', 'vehPage--;afficherPageVeh();', vehPage <= 1)}
+            ${pages}
+            ${s(' pag-nav', 'Suiv. →', 'vehPage++;afficherPageVeh();', vehPage >= totalPages)}
+        </div>
+    </div>`;
+}
+
 function resetVeh() {
     document.getElementById('searchVeh').value = '';
     document.getElementById('filtreTypeVeh').value = '';
     document.getElementById('filtreEtatVeh').value = '';
     filtrerVehicules();
 }
+
 document.addEventListener('DOMContentLoaded', filtrerVehicules);
 document.getElementById('searchVeh').addEventListener('keydown', e => { if (e.key === 'Escape') resetVeh(); });
 </script>
@@ -919,7 +1053,13 @@ $parc_vue = $conn->query("
     </tbody>
 </table>
 
+<div id="paginationVue"></div>
+
 <script>
+let vuePage    = 1;
+let vuePerPage = 10;
+let vueRows    = [];
+
 function filtrerVue() {
     const kw    = document.getElementById('rechercheVue').value.toLowerCase();
     const type  = document.getElementById('filtreTypeVue').value;
@@ -929,23 +1069,77 @@ function filtrerVue() {
     document.getElementById('filtreTypeVue').classList.toggle('active-filter', !!type);
     document.getElementById('filtreDispoVue').classList.toggle('active-filter', !!dispo);
 
-    let nb = 0;
-    document.querySelectorAll('#tableVue tbody tr:not(.no-result)').forEach(tr => {
-        const ok = (!kw    || tr.dataset.search.includes(kw))
-                && (!type  || tr.dataset.type  === type)
-                && (!dispo || tr.dataset.dispo  === dispo);
-        tr.style.display = ok ? '' : 'none';
-        if (ok) nb++;
-    });
-    document.getElementById('countVue').textContent = nb + ' véhicule' + (nb > 1 ? 's' : '');
-    document.querySelector('#tableVue .no-result').style.display = nb === 0 ? '' : 'none';
+    const all = Array.from(document.querySelectorAll('#tableVue tbody tr:not(.no-result)'));
+    vueRows = all.filter(tr =>
+        (!kw    || tr.dataset.search.includes(kw))
+     && (!type  || tr.dataset.type  === type)
+     && (!dispo || tr.dataset.dispo === dispo)
+    );
+    all.forEach(tr => tr.style.display = 'none');
+    vuePage = 1;
+    afficherPageVue();
 }
+
+function afficherPageVue() {
+    const total      = vueRows.length;
+    const totalPages = Math.max(1, Math.ceil(total / vuePerPage));
+    vuePage = Math.min(Math.max(1, vuePage), totalPages);
+
+    const debut = (vuePage - 1) * vuePerPage;
+    const fin   = debut + vuePerPage;
+    vueRows.forEach((tr, i) => tr.style.display = (i >= debut && i < fin) ? '' : 'none');
+
+    document.getElementById('countVue').textContent = total + ' véhicule' + (total > 1 ? 's' : '');
+    document.querySelector('#tableVue .no-result').style.display = total === 0 ? '' : 'none';
+    renderPaginationVue(total, totalPages);
+}
+
+function renderPaginationVue(total, totalPages) {
+    const el = document.getElementById('paginationVue');
+    if (total === 0) { el.innerHTML = ''; return; }
+
+    const debut = (vuePage - 1) * vuePerPage + 1;
+    const fin   = Math.min(vuePage * vuePerPage, total);
+
+    const opts = [10, 25, 50].map(n =>
+        `<option value="${n}" ${vuePerPage===n?'selected':''}>${n}</option>`
+    ).join('');
+
+    const s = (extra, label, click, disabled) =>
+        `<span class="pag-btn${extra}" style="cursor:${disabled?'default':'pointer'};opacity:${disabled?.35:1};" ${disabled?'':` onclick="${click}"`}>${label}</span>`;
+
+    let pages = '';
+    for (let p = 1; p <= totalPages; p++) {
+        if (p === 1 || p === totalPages || Math.abs(p - vuePage) <= 1) {
+            pages += s(p === vuePage ? ' pag-active' : '', p, `vuePage=${p};afficherPageVue();`, false);
+        } else if (Math.abs(p - vuePage) === 2) {
+            pages += '<span class="pag-dots">…</span>';
+        }
+    }
+
+    el.innerHTML = `
+    <div class="pagination-bar">
+        <div class="pag-per-page">
+            <span>Afficher</span>
+            <select onchange="vuePerPage=parseInt(this.value);vuePage=1;afficherPageVue();">${opts}</select>
+            <span>par page</span>
+        </div>
+        <span class="pag-info">${debut}–${fin} sur <strong>${total}</strong></span>
+        <div class="pag-buttons">
+            ${s(' pag-nav', '← Préc.', 'vuePage--;afficherPageVue();', vuePage <= 1)}
+            ${pages}
+            ${s(' pag-nav', 'Suiv. →', 'vuePage++;afficherPageVue();', vuePage >= totalPages)}
+        </div>
+    </div>`;
+}
+
 function resetVue() {
     document.getElementById('rechercheVue').value = '';
     document.getElementById('filtreTypeVue').value = '';
     document.getElementById('filtreDispoVue').value = '';
     filtrerVue();
 }
+
 document.addEventListener('DOMContentLoaded', filtrerVue);
 document.getElementById('rechercheVue').addEventListener('keydown', e => { if (e.key === 'Escape') resetVue(); });
 </script>
@@ -984,6 +1178,15 @@ function sortTable(tableId, colIdx) {
     });
     rows.forEach(r => tbody.appendChild(r));
     tbody.appendChild(tbody.querySelector('.no-result'));
+
+    // Remettre à jour la pagination après un tri
+    if (tableId === 'tableVeh') {
+        vehRows = rows.filter(tr => tr.style.display !== 'none');
+        afficherPageVeh();
+    } else if (tableId === 'tableVue') {
+        vueRows = rows.filter(tr => tr.style.display !== 'none');
+        afficherPageVue();
+    }
 }
 </script>
 

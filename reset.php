@@ -39,8 +39,8 @@ if ($user_id > 0 && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Veuillez remplir tous les champs.";
     } elseif ($new_password !== $confirm_password) {
         $error = "Les mots de passe ne correspondent pas.";
-    } elseif (strlen($new_password) < 6) {
-        $error = "Le mot de passe doit contenir au moins 6 caractères.";
+    } elseif (strlen($new_password) < 4) {
+        $error = "Le mot de passe doit contenir au moins 4 caractères.";
     } else {
         $stmt = $conn->prepare("UPDATE employes SET mot_de_passe = ? WHERE id_employe = ?");
         $stmt->bind_param("si", $new_password, $user_id);
@@ -277,11 +277,11 @@ if ($user_id > 0 && $_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" action="reset.php?token=<?php echo htmlspecialchars($token); ?>">
                 <div class="field-group">
                     <label for="new_password">Nouveau mot de passe</label>
-                    <input type="password" id="new_password" name="new_password" required placeholder="••••••••" minlength="6">
+                    <input type="password" id="new_password" name="new_password" required placeholder="••••••••" minlength="4">
                 </div>
                 <div class="field-group">
                     <label for="confirm_password">Confirmer le mot de passe</label>
-                    <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••" minlength="6">
+                    <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••" minlength="4">
                 </div>
                 <button type="submit" class="btn-submit">Valider le nouveau mot de passe</button>
             </form>

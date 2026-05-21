@@ -18,7 +18,51 @@ if ($conn->connect_error) {
 // Définir l'encodage
 $conn->set_charset("utf8mb4");
 $conn->query("SET time_zone = '+04:00'");
-// NOTE: Pour les tests, nous allons initialiser un utilisateur "Manager" ou "Employé" 
-// si aucune session n'est active et qu'on est sur une page critique (mais login.php gère ça)
-// L'inclusion de 'includes/header.php' s'occupe de la redirection si l'utilisateur n'est pas logué.
+
+$conn->query("CREATE TABLE IF NOT EXISTS sessions_auto (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    session_token VARCHAR(64) NOT NULL UNIQUE,
+    ip VARCHAR(45),
+    user_agent TEXT,
+    login_time DATETIME NOT NULL,
+    last_activity DATETIME NOT NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_token (session_token)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Vérifier que le token de session est toujours valide (non révoqué)
+if (isset($_SESSION['user_id'], $_SESSION['session_token'])) {
+    $tk  = $_SESSION['session_token'];
+    $uid = (int)$_SESSION['user_id'];
+
+    // SELECT pour détecter une révocation (affected_rows=0 sur UPDATE est trompeur si la valeur ne change pas)
+    $chk = $conn->prepare("SELECT id FROM sessions_auto WHERE session_token = ? AND user_id = ?");
+    if ($chk) {
+        $chk->bind_param("si", $tk, $uid);
+        $chk->execute();
+        $chk->store_result();
+        $exists = $chk->num_rows > 0;
+        $chk->close();
+
+        if (!$exists) {
+            $_SESSION = [];
+            if (ini_get("session.use_cookies")) {
+                $p = session_get_cookie_params();
+                setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+            }
+            session_destroy();
+            header('Location: login.php?session_expired=1');
+            exit;
+        }
+
+        // Mise à jour de last_activity (fire and forget)
+        $upd = $conn->prepare("UPDATE sessions_auto SET last_activity = NOW() WHERE session_token = ?");
+        if ($upd) {
+            $upd->bind_param("s", $tk);
+            $upd->execute();
+            $upd->close();
+        }
+    }
+}
 ?>

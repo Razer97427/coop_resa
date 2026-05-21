@@ -6,7 +6,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 $error_message = '';
-$logout_message = isset($_GET['logout']) && $_GET['logout'] == '1';
+$logout_message   = isset($_GET['logout']) && $_GET['logout'] == '1';
+$session_expired  = isset($_GET['session_expired']) && $_GET['session_expired'] == '1';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $matricule       = trim($_POST['matricule'] ?? '');
@@ -218,6 +219,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div style="background:#d4edda; color:#155724; border:1px solid #c3e6cb; border-radius:7px; padding:11px 14px; font-size:0.875rem; margin-bottom:18px; display:flex; align-items:center; gap:8px;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="#155724"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
                 Vous avez été déconnecté avec succès.
+            </div>
+        <?php endif; ?>
+        <?php if ($session_expired): ?>
+            <div style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; border-radius:7px; padding:11px 14px; font-size:0.875rem; margin-bottom:18px; display:flex; align-items:center; gap:8px;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="#721c24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                Cette session a été révoquée. Veuillez vous reconnecter.
             </div>
         <?php endif; ?>
 

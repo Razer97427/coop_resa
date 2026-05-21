@@ -2,7 +2,15 @@
 // logout.php - Gestion de la déconnexion
 session_start();
 
-// Détruire toutes les variables de session
+// Supprimer le token de session en base
+if (isset($_SESSION['session_token'])) {
+    require_once 'config.php';
+    $del_s = $conn->prepare("DELETE FROM sessions_auto WHERE session_token = ?");
+    $del_s->bind_param("s", $_SESSION['session_token']);
+    $del_s->execute();
+    $del_s->close();
+}
+
 $_SESSION = array();
 
 // Si vous voulez détruire complètement la session, effacez également le cookie de session.
