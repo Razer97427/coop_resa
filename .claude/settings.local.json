@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(grep -E \"\\\\.php$|\\\\.html$|\\\\.css$|\\\\.js$\")",
+      "Bash(dir \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" /a /b)",
+      "Bash(Get-ChildItem -Path \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" -Filter \"*.sql\" -Force)"
+    ]
+  }
+}
