@@ -16,30 +16,51 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (empty($matricule) || empty($password_saisi)) {
         $error_message = "Tous les champs sont obligatoires.";
     } else {
-        $stmt = $conn->prepare("SELECT id_employe, nom, prenom, role, mot_de_passe, two_fa_secret FROM employes WHERE matricule = ? AND actif = TRUE");
+        $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1')[0]);
 
-        if ($stmt) {
-            $stmt->bind_param("s", $matricule);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $user   = $result->fetch_assoc();
-            $stmt->close();
+        $rl = $conn->prepare("SELECT fails, locked_until FROM login_attempts WHERE ip = ?");
+        $rl->bind_param("s", $ip);
+        $rl->execute();
+        $rl_row = $rl->get_result()->fetch_assoc();
+        $rl->close();
 
-            if ($user && $user['mot_de_passe'] == $password_saisi) {
-
-                if (!empty($user['two_fa_secret'])) {
-                    $_SESSION['2fa_pending_user_id'] = $user['id_employe'];
-                    header("Location: login_2fa_check.php");
-                    exit();
-                } else {
-                    $error_message = "Connexion refusée : la double authentification (2FA) est obligatoire. Veuillez contacter le service informatique.";
-                }
-
-            } else {
-                $error_message = "Matricule ou mot de passe incorrect.";
-            }
+        if ($rl_row && $rl_row['locked_until'] && strtotime($rl_row['locked_until']) > time()) {
+            $mins = max(1, (int)ceil((strtotime($rl_row['locked_until']) - time()) / 60));
+            $error_message = "Trop de tentatives. Réessayez dans $mins minute(s).";
         } else {
-            $error_message = "Erreur technique. Veuillez réessayer.";
+            $stmt = $conn->prepare("SELECT id_employe, nom, prenom, role, mot_de_passe, two_fa_secret FROM employes WHERE matricule = ? AND actif = TRUE");
+
+            if ($stmt) {
+                $stmt->bind_param("s", $matricule);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $user   = $result->fetch_assoc();
+                $stmt->close();
+
+                if ($user && $user['mot_de_passe'] == $password_saisi) {
+                    $del_rl = $conn->prepare("DELETE FROM login_attempts WHERE ip = ?");
+                    $del_rl->bind_param("s", $ip);
+                    $del_rl->execute();
+                    $del_rl->close();
+
+                    if (!empty($user['two_fa_secret'])) {
+                        $_SESSION['2fa_pending_user_id'] = $user['id_employe'];
+                        header("Location: login_2fa_check.php");
+                        exit();
+                    } else {
+                        $error_message = "Connexion refusée : la double authentification (2FA) est obligatoire. Veuillez contacter le service informatique.";
+                    }
+
+                } else {
+                    $upsert = $conn->prepare("INSERT INTO login_attempts (ip, fails, locked_until) VALUES (?, 1, NULL) ON DUPLICATE KEY UPDATE fails = fails + 1, locked_until = IF(fails + 1 >= 5, DATE_ADD(NOW(), INTERVAL 15 MINUTE), locked_until)");
+                    $upsert->bind_param("s", $ip);
+                    $upsert->execute();
+                    $upsert->close();
+                    $error_message = "Matricule ou mot de passe incorrect.";
+                }
+            } else {
+                $error_message = "Erreur technique. Veuillez réessayer.";
+            }
         }
     }
 }

@@ -7,6 +7,17 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function csrf_verify() {
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
+        die('Requête invalide (token CSRF incorrect).');
+    }
+}
+
 // Connexion à la base de données MySQL
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
 
@@ -18,6 +29,13 @@ if ($conn->connect_error) {
 // Définir l'encodage
 $conn->set_charset("utf8mb4");
 $conn->query("SET time_zone = '+04:00'");
+
+$conn->query("CREATE TABLE IF NOT EXISTS login_attempts (
+    ip VARCHAR(45) NOT NULL,
+    fails INT NOT NULL DEFAULT 0,
+    locked_until DATETIME DEFAULT NULL,
+    PRIMARY KEY (ip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $conn->query("CREATE TABLE IF NOT EXISTS sessions_auto (
     id INT AUTO_INCREMENT PRIMARY KEY,

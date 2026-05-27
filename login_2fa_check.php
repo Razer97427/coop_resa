@@ -16,55 +16,72 @@ if (!isset($_SESSION['2fa_pending_user_id'])) {
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $code = trim($_POST['code']);
+    $code    = trim($_POST['code']);
     $user_id = $_SESSION['2fa_pending_user_id'];
 
-    // CORRECTION : Utilisation de $conn (MySQLi) au lieu de $pdo
-    // CORRECTION : Utilisation de 'id_employe' au lieu de 'id'
-    $stmt = $conn->prepare("SELECT id_employe, nom, prenom, role, matricule, two_fa_secret FROM employes WHERE id_employe = ?");
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $user = $result->fetch_assoc();
-    $stmt->close();
+    $ip_2fa = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1')[0]);
+    $rl_key = '2fa_' . $user_id;
 
-    if ($user) {
-        $ga = new PHPGangsta_GoogleAuthenticator();
-        // Vérification du code
-        // La librairie veut le secret et le code soumis
-        $checkResult = $ga->verifyCode($user['two_fa_secret'], $code, 2); // 2 = marge de tolérance (2x30sec)
+    $rl2 = $conn->prepare("SELECT fails, locked_until FROM login_attempts WHERE ip = ?");
+    $rl2->bind_param("s", $rl_key);
+    $rl2->execute();
+    $rl2_row = $rl2->get_result()->fetch_assoc();
+    $rl2->close();
 
-        if ($checkResult) {
-            // Code OK : On connecte réellement l'utilisateur
-            // On recrée les variables de session comme dans le login classique
-            $session_token = bin2hex(random_bytes(32));
-            $login_ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
-            $login_ua      = $_SERVER['HTTP_USER_AGENT'] ?? '';
-
-            $ins_s = $conn->prepare("INSERT INTO sessions_auto (user_id, session_token, ip, user_agent, login_time, last_activity) VALUES (?, ?, ?, ?, NOW(), NOW())");
-            $ins_s->bind_param("isss", $user['id_employe'], $session_token, $login_ip, $login_ua);
-            $ins_s->execute();
-            $ins_s->close();
-
-            $_SESSION['user_id']       = $user['id_employe'];
-            $_SESSION['user_name']     = $user['prenom'] . ' ' . $user['nom'];
-            $_SESSION['user_role']     = $user['role'];
-            $_SESSION['matricule']     = $user['matricule'];
-            $_SESSION['session_token'] = $session_token;
-
-            unset($_SESSION['2fa_pending_user_id']);
-
-            // Redirection selon le rôle
-            $redirect = ($user['role'] === 'Manager') ? 'manager.php' : 'index.php';
-            header('Location: ' . $redirect);
-            exit;
-        } else {
-            $error = "Code incorrect.";
-        }
+    if ($rl2_row && $rl2_row['locked_until'] && strtotime($rl2_row['locked_until']) > time()) {
+        $mins2 = max(1, (int)ceil((strtotime($rl2_row['locked_until']) - time()) / 60));
+        $error = "Trop de tentatives. Réessayez dans $mins2 minute(s).";
     } else {
-        // Cas rare : l'utilisateur a disparu entre le login et la validation
-        header("Location: login.php");
-        exit;
+        $stmt = $conn->prepare("SELECT id_employe, nom, prenom, role, matricule, two_fa_secret FROM employes WHERE id_employe = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $user = $result->fetch_assoc();
+        $stmt->close();
+
+        if ($user) {
+            $ga = new PHPGangsta_GoogleAuthenticator();
+            $checkResult = $ga->verifyCode($user['two_fa_secret'], $code, 2);
+
+            if ($checkResult) {
+                $del_rl2 = $conn->prepare("DELETE FROM login_attempts WHERE ip = ?");
+                $del_rl2->bind_param("s", $rl_key);
+                $del_rl2->execute();
+                $del_rl2->close();
+
+                $session_token = bin2hex(random_bytes(32));
+                $login_ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+                $login_ua      = $_SERVER['HTTP_USER_AGENT'] ?? '';
+
+                $ins_s = $conn->prepare("INSERT INTO sessions_auto (user_id, session_token, ip, user_agent, login_time, last_activity) VALUES (?, ?, ?, ?, NOW(), NOW())");
+                $ins_s->bind_param("isss", $user['id_employe'], $session_token, $login_ip, $login_ua);
+                $ins_s->execute();
+                $ins_s->close();
+
+                session_regenerate_id(true);
+
+                $_SESSION['user_id']       = $user['id_employe'];
+                $_SESSION['user_name']     = $user['prenom'] . ' ' . $user['nom'];
+                $_SESSION['user_role']     = $user['role'];
+                $_SESSION['matricule']     = $user['matricule'];
+                $_SESSION['session_token'] = $session_token;
+
+                unset($_SESSION['2fa_pending_user_id']);
+
+                $redirect = ($user['role'] === 'Manager') ? 'manager.php' : 'index.php';
+                header('Location: ' . $redirect);
+                exit;
+            } else {
+                $upsert2 = $conn->prepare("INSERT INTO login_attempts (ip, fails, locked_until) VALUES (?, 1, NULL) ON DUPLICATE KEY UPDATE fails = fails + 1, locked_until = IF(fails + 1 >= 5, DATE_ADD(NOW(), INTERVAL 15 MINUTE), locked_until)");
+                $upsert2->bind_param("s", $rl_key);
+                $upsert2->execute();
+                $upsert2->close();
+                $error = "Code incorrect.";
+            }
+        } else {
+            header("Location: login.php");
+            exit;
+        }
     }
 }
 ?>

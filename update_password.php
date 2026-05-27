@@ -124,7 +124,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_email') {
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = smtp_port;
                 $mail->CharSet    = 'UTF-8';
-                $mail->SMTPOptions = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
 
                 $mail->setFrom(smtp_from, 'Gestion Flotte TERRACOOP');
                 $mail->addAddress($new_email, $employe['prenom'] . ' ' . $employe['nom']);

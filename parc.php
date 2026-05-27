@@ -12,6 +12,7 @@ if (($_SESSION['user_role'] ?? '') !== 'Manager') {
 
 // --- VÉHICULES ---
 if (isset($_POST['ajout_vehicule'])) {
+    csrf_verify();
     $immat   = trim($_POST['immatriculation']);
     $marque  = trim($_POST['marque']);
     $modele  = trim($_POST['modele']);
@@ -25,15 +26,25 @@ if (isset($_POST['ajout_vehicule'])) {
 }
 
 if (isset($_GET['veh_action']) && isset($_GET['id'])) {
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $_GET['csrf_token'] ?? '')) {
+        http_response_code(403); exit;
+    }
     $id  = (int)$_GET['id'];
     $act = $_GET['veh_action'];
-    if ($act === 'desactiver')    $conn->query("UPDATE vehicules SET actif=0 WHERE id_vehicule=$id");
-    elseif ($act === 'reactiver') $conn->query("UPDATE vehicules SET actif=1 WHERE id_vehicule=$id");
-    elseif ($act === 'toggle')    $conn->query("UPDATE vehicules SET est_communal=1-est_communal WHERE id_vehicule=$id");
-    elseif ($act === 'supprimer') {
-        $conn->query("DELETE FROM reservations WHERE id_vehicule=$id");
-        $conn->query("DELETE FROM affectations_fixes WHERE id_vehicule=$id");
-        $conn->query("DELETE FROM vehicules WHERE id_vehicule=$id AND actif=0");
+    if ($act === 'desactiver' || $act === 'reactiver') {
+        $actif_v = ($act === 'reactiver') ? 1 : 0;
+        $s = $conn->prepare("UPDATE vehicules SET actif=? WHERE id_vehicule=?");
+        $s->bind_param("ii", $actif_v, $id); $s->execute(); $s->close();
+    } elseif ($act === 'toggle') {
+        $s = $conn->prepare("UPDATE vehicules SET est_communal=1-est_communal WHERE id_vehicule=?");
+        $s->bind_param("i", $id); $s->execute(); $s->close();
+    } elseif ($act === 'supprimer') {
+        $s1 = $conn->prepare("DELETE FROM reservations WHERE id_vehicule=?");
+        $s1->bind_param("i", $id); $s1->execute(); $s1->close();
+        $s2 = $conn->prepare("DELETE FROM affectations_fixes WHERE id_vehicule=?");
+        $s2->bind_param("i", $id); $s2->execute(); $s2->close();
+        $s3 = $conn->prepare("DELETE FROM vehicules WHERE id_vehicule=? AND actif=0");
+        $s3->bind_param("i", $id); $s3->execute(); $s3->close();
     }
     header('Location: parc.php?message=' . urlencode('✅ Véhicule mis à jour.') . '&type=success&tab=vehicules');
     exit();
@@ -41,26 +52,42 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
 
 // --- AFFECTATIONS ---
 if (isset($_POST['ajout_affectation'])) {
+    csrf_verify();
     $id_emp = (int)$_POST['id_employe'];
     $id_veh = (int)$_POST['id_vehicule'];
-    $check  = $conn->query("SELECT COUNT(*) as n FROM affectations_fixes WHERE id_employe=$id_emp OR id_vehicule=$id_veh")->fetch_assoc()['n'];
+    $chk_aff = $conn->prepare("SELECT COUNT(*) as n FROM affectations_fixes WHERE id_employe=? OR id_vehicule=?");
+    $chk_aff->bind_param("ii", $id_emp, $id_veh);
+    $chk_aff->execute();
+    $check = $chk_aff->get_result()->fetch_assoc()['n'];
+    $chk_aff->close();
     if ($check > 0) {
         header('Location: parc.php?message=' . urlencode('❌ Cet employé ou ce véhicule est déjà affecté.') . '&type=error&tab=affectations');
     } else {
         $stmt = $conn->prepare("INSERT INTO affectations_fixes (id_employe, id_vehicule) VALUES (?,?)");
         $stmt->bind_param("ii", $id_emp, $id_veh);
         $stmt->execute();
-        $conn->query("UPDATE vehicules SET est_communal=0 WHERE id_vehicule=$id_veh");
+        $stmt->close();
+        $su = $conn->prepare("UPDATE vehicules SET est_communal=0 WHERE id_vehicule=?");
+        $su->bind_param("i", $id_veh); $su->execute(); $su->close();
         header('Location: parc.php?message=' . urlencode('✅ Affectation enregistrée.') . '&type=success&tab=affectations');
     }
     exit();
 }
 
 if (isset($_GET['aff_action']) && $_GET['aff_action'] === 'supprimer' && isset($_GET['id'])) {
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $_GET['csrf_token'] ?? '')) {
+        http_response_code(403); exit;
+    }
     $id = (int)$_GET['id'];
-    $row_aff = $conn->query("SELECT id_vehicule FROM affectations_fixes WHERE id_affectation=$id")->fetch_assoc();
-    if ($row_aff) $conn->query("UPDATE vehicules SET est_communal=1 WHERE id_vehicule=".$row_aff['id_vehicule']);
-    $conn->query("DELETE FROM affectations_fixes WHERE id_affectation=$id");
+    $sa = $conn->prepare("SELECT id_vehicule FROM affectations_fixes WHERE id_affectation=?");
+    $sa->bind_param("i", $id); $sa->execute();
+    $row_aff = $sa->get_result()->fetch_assoc(); $sa->close();
+    if ($row_aff) {
+        $sv = $conn->prepare("UPDATE vehicules SET est_communal=1 WHERE id_vehicule=?");
+        $sv->bind_param("i", $row_aff['id_vehicule']); $sv->execute(); $sv->close();
+    }
+    $sd = $conn->prepare("DELETE FROM affectations_fixes WHERE id_affectation=?");
+    $sd->bind_param("i", $id); $sd->execute(); $sd->close();
     header('Location: parc.php?message=' . urlencode('✅ Affectation supprimée. Véhicule repassé en communal.') . '&type=success&tab=affectations');
     exit();
 }
@@ -455,6 +482,7 @@ tr.no-result td {
     <h3 style="margin-top:0;">➕ Ajouter un véhicule</h3>
     <form action="parc.php" method="POST">
         <input type="hidden" name="ajout_vehicule" value="1">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
         <div class="time-group">
             <div>
                 <label>Immatriculation</label>
@@ -552,12 +580,13 @@ tr.no-result td {
             </span>
         </td>
         <td data-label="Actions">
+            <?php $ct = urlencode($_SESSION['csrf_token']); ?>
             <?php if ($row['actif']): ?>
-                <a href="parc.php?veh_action=toggle&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules" class="action-btn return-btn" onclick="return confirm('Changer le type communal/attitré ?')" style="margin:2px;">🔁 Type</a>
-                <a href="parc.php?veh_action=desactiver&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules" class="action-btn cancel-btn" onclick="return confirm('Désactiver ?')" style="margin:2px;">Désactiver</a>
+                <a href="parc.php?veh_action=toggle&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn return-btn" onclick="return confirm('Changer le type communal/attitré ?')" style="margin:2px;">🔁 Type</a>
+                <a href="parc.php?veh_action=desactiver&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn cancel-btn" onclick="return confirm('Désactiver ?')" style="margin:2px;">Désactiver</a>
             <?php else: ?>
-                <a href="parc.php?veh_action=reactiver&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules" class="action-btn charge-btn" style="margin:2px;">Réactiver</a>
-                <a href="parc.php?veh_action=supprimer&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules" class="action-btn cancel-btn" onclick="return confirm('SUPPRIMER définitivement ?')" style="margin:2px;">Supprimer</a>
+                <a href="parc.php?veh_action=reactiver&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn charge-btn" style="margin:2px;">Réactiver</a>
+                <a href="parc.php?veh_action=supprimer&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn cancel-btn" onclick="return confirm('SUPPRIMER définitivement ?')" style="margin:2px;">Supprimer</a>
             <?php endif; ?>
         </td>
     </tr>
@@ -667,6 +696,7 @@ document.getElementById('searchVeh').addEventListener('keydown', e => { if (e.ke
     <p class="text-muted" style="margin-bottom:16px;">Attribuer un véhicule attitré à un employé. Le véhicule passera automatiquement en type "Attitré".</p>
     <form action="parc.php" method="POST" id="formAff">
         <input type="hidden" name="ajout_affectation" value="1">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
 
         <label>Employé <small class="text-muted">(sans véhicule attitré)</small></label>
         <div class="aff-search-group">
@@ -751,7 +781,7 @@ function filterSelect(selectId, kw) {
             <small class="text-muted"><?php echo htmlspecialchars($row['immatriculation']); ?></small>
         </td>
         <td data-label="Actions">
-            <a href="parc.php?aff_action=supprimer&id=<?php echo $row['id_affectation']; ?>&tab=affectations"
+            <a href="parc.php?aff_action=supprimer&id=<?php echo $row['id_affectation']; ?>&tab=affectations&csrf_token=<?php echo urlencode($_SESSION['csrf_token']); ?>"
                class="action-btn cancel-btn"
                onclick="return confirm('Libérer ce véhicule ? Il repassera en communal.')">Libérer</a>
         </td>

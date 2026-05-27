@@ -1,6 +1,12 @@
 <?php
-require_once 'config.php'; 
+require_once 'config.php';
 header('Content-Type: application/json');
+
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
 
 // 1. Récupérer la date affichée par le calendrier
 // FullCalendar envoie "start" (ex: 2023-12-10T00:00:00). On prend juste la date Y-m-d.

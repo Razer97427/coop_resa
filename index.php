@@ -16,6 +16,7 @@ $restitution_id = (int)($_GET['restitution_id'] ?? 0);
 
 // 1. Nouvelle demande
 if (isset($_POST['reservation_submit'])) {
+    csrf_verify();
     $destination = trim($_POST['destination'] ?? '');
     $motif       = trim($_POST['motif']       ?? '');
     $date_debut  = ($_POST['date_debut']  ?? '') . ' ' . ($_POST['heure_debut'] ?? '00:00') . ':00';
@@ -52,13 +53,6 @@ if (isset($_POST['reservation_submit'])) {
                         $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
                         $mail->Port       = smtp_port;
                         $mail->CharSet    = 'UTF-8';
-                        $mail->SMTPOptions = [
-                            'ssl' => [
-                                'verify_peer'       => false,
-                                'verify_peer_name'  => false,
-                                'allow_self_signed' => true,
-                            ]
-                        ];
 
                         $mail->setFrom(smtp_from, 'Gestion Flotte TERRACOOP');
                         $mail->addAddress($mgr['email'], $mgr['prenom'] . ' ' . $mgr['nom']);
@@ -112,6 +106,7 @@ if (isset($_POST['reservation_submit'])) {
 
 // 2. Prise en charge (départ)
 if (isset($_POST['prise_en_charge_submit'])) {
+    csrf_verify();
     $id_resa            = (int)$_POST['id_reservation'];
     $km_debut           = (int)$_POST['km_debut'];
     $commentaire_depart = $_POST['commentaire_depart'] ?? '';
@@ -124,6 +119,7 @@ if (isset($_POST['prise_en_charge_submit'])) {
 
 // 3. Restitution
 if (isset($_POST['restitution_submit'])) {
+    csrf_verify();
     $id_resa     = (int)$_POST['id_reservation'];
     $km_fin      = (int)$_POST['km_fin'];
     $date_retour = str_replace('T', ' ', $_POST['date_retour_reel'] ?? date('Y-m-d H:i:s'));
@@ -131,7 +127,17 @@ if (isset($_POST['restitution_submit'])) {
     $stmt = $conn->prepare("UPDATE reservations SET km_fin=?, date_retour_reel=?, commentaire_retour=?, statut_resa='Terminée' WHERE id_reservation=? AND id_employe=?");
     $stmt->bind_param("issii", $km_fin, $date_retour, $comment, $id_resa, $uid);
     if ($stmt->execute()) {
-        $conn->query("UPDATE vehicules SET kilometrage=$km_fin WHERE id_vehicule=(SELECT id_vehicule FROM reservations WHERE id_reservation=$id_resa)");
+        $stmt_veh_id = $conn->prepare("SELECT id_vehicule FROM reservations WHERE id_reservation=? AND id_employe=?");
+        $stmt_veh_id->bind_param("ii", $id_resa, $uid);
+        $stmt_veh_id->execute();
+        $row_veh_id = $stmt_veh_id->get_result()->fetch_assoc();
+        $stmt_veh_id->close();
+        if ($row_veh_id && $row_veh_id['id_vehicule']) {
+            $stmt_km = $conn->prepare("UPDATE vehicules SET kilometrage=? WHERE id_vehicule=?");
+            $stmt_km->bind_param("ii", $km_fin, $row_veh_id['id_vehicule']);
+            $stmt_km->execute();
+            $stmt_km->close();
+        }
         header('Location: index.php?message=' . urlencode('✅ Véhicule restitué. Merci !') . '&type=success');
         exit();
     }
@@ -202,6 +208,7 @@ $historique = $stmt_h->get_result();
     <form action="index.php" method="POST">
         <input type="hidden" name="restitution_submit" value="1">
         <input type="hidden" name="id_reservation" value="<?php echo $restitution_id; ?>">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
         <label>Date & heure de retour :</label>
         <input type="datetime-local" name="date_retour_reel" value="<?php echo date('Y-m-d\TH:i'); ?>" required>
         <label>Kilométrage fin :</label>
@@ -240,6 +247,7 @@ $historique = $stmt_h->get_result();
     </p>
     <form action="index.php" method="POST">
         <input type="hidden" name="reservation_submit" value="1">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
         <div class="time-group">
             <div>
                 <label>Date de départ</label>
@@ -317,6 +325,7 @@ $historique = $stmt_h->get_result();
             <form action="index.php" method="POST" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin:0;">
                 <input type="hidden" name="prise_en_charge_submit" value="1">
                 <input type="hidden" name="id_reservation" value="<?php echo $row['id_reservation']; ?>">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                 <div>
                     <label style="font-size:.78em; margin:0 0 3px; display:block; color:#495057;">Km départ</label>
                     <input type="number" name="km_debut" value="<?php echo $row['km_actuel']; ?>" min="<?php echo $row['km_actuel']; ?>" required style="width:110px; margin:0;">

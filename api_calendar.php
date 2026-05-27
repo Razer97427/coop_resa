@@ -1,27 +1,37 @@
 <?php
-require_once 'config.php'; 
+require_once 'config.php';
 ini_set('display_errors', 0); // Pas d'erreur HTML dans le JSON
 header('Content-Type: application/json');
+
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
 
 $events = [];
 
 try {
     $id_vehicule = isset($_GET['id_vehicule']) && !empty($_GET['id_vehicule']) ? (int)$_GET['id_vehicule'] : 0;
 
-    // Requête SQL complète
-    $sql = "SELECT r.id_reservation, r.id_vehicule, r.date_debut_resa, r.date_fin_resa, r.statut_resa, r.motif, 
+    $sql = "SELECT r.id_reservation, r.id_vehicule, r.date_debut_resa, r.date_fin_resa, r.statut_resa, r.motif,
                    e.nom, e.prenom, v.marque, v.modele, v.immatriculation
-            FROM reservations r 
-            JOIN employes e ON r.id_employe = e.id_employe 
+            FROM reservations r
+            JOIN employes e ON r.id_employe = e.id_employe
             JOIN vehicules v ON r.id_vehicule = v.id_vehicule
             WHERE r.statut_resa IN ('Validée', 'En cours', 'En attente')";
 
-    // Filtre optionnel
     if ($id_vehicule > 0) {
-        $sql .= " AND r.id_vehicule = " . $id_vehicule;
+        $sql .= " AND r.id_vehicule = ?";
+        $stmt_cal = $conn->prepare($sql);
+        $stmt_cal->bind_param("i", $id_vehicule);
+        $stmt_cal->execute();
+        $result = $stmt_cal->get_result();
+    } else {
+        $stmt_cal = $conn->prepare($sql);
+        $stmt_cal->execute();
+        $result = $stmt_cal->get_result();
     }
-
-    $result = $conn->query($sql);
 
     if ($result) {
         while ($row = $result->fetch_assoc()) {

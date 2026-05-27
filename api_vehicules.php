@@ -1,6 +1,13 @@
 <?php
 require_once 'config.php';
 
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
 // On récupère la date demandée (ou aujourd'hui par défaut)
 $date_demandee = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 

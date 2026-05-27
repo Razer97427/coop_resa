@@ -8,6 +8,7 @@ $message_type = '';
 
 // Ajout
 if (isset($_POST['ajout_employe'])) {
+    csrf_verify();
     $matricule = trim($_POST['matricule'] ?? '');
     $nom       = trim($_POST['nom']       ?? '');
     $prenom    = trim($_POST['prenom']    ?? '');
@@ -40,10 +41,18 @@ if (isset($_POST['ajout_employe'])) {
 
 // Toggle actif
 if (isset($_GET['emp_action']) && isset($_GET['id'])) {
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $_GET['csrf_token'] ?? '')) {
+        http_response_code(403); exit;
+    }
     $id  = (int)$_GET['id'];
     $act = $_GET['emp_action'];
-    if ($act === 'desactiver') $conn->query("UPDATE employes SET actif=0 WHERE id_employe=$id");
-    elseif ($act === 'reactiver') $conn->query("UPDATE employes SET actif=1 WHERE id_employe=$id");
+    if ($act === 'desactiver' || $act === 'reactiver') {
+        $actif_val = ($act === 'reactiver') ? 1 : 0;
+        $stmt_tog = $conn->prepare("UPDATE employes SET actif=? WHERE id_employe=?");
+        $stmt_tog->bind_param("ii", $actif_val, $id);
+        $stmt_tog->execute();
+        $stmt_tog->close();
+    }
     header('Location: employes.php?message=' . urlencode('✅ Collaborateur mis à jour.') . '&type=success');
     exit();
 }
@@ -72,6 +81,7 @@ $employes = $conn->query("
     <h3 style="margin-top:0;">➕ Ajouter un collaborateur</h3>
     <form action="employes.php" method="POST">
         <input type="hidden" name="ajout_employe" value="1">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
         <div class="time-group">
             <div>
                 <label>Matricule <span style="color:red">*</span></label>
@@ -141,9 +151,9 @@ $employes = $conn->query("
         </td>
         <td data-label="Actions">
             <?php if ($row['actif']): ?>
-                <a href="employes.php?emp_action=desactiver&id=<?php echo $row['id_employe']; ?>" class="action-btn cancel-btn" onclick="return confirm('Désactiver ce collaborateur ?')">Désactiver</a>
+                <a href="employes.php?emp_action=desactiver&id=<?php echo $row['id_employe']; ?>&csrf_token=<?php echo urlencode($_SESSION['csrf_token']); ?>" class="action-btn cancel-btn" onclick="return confirm('Désactiver ce collaborateur ?')">Désactiver</a>
             <?php else: ?>
-                <a href="employes.php?emp_action=reactiver&id=<?php echo $row['id_employe']; ?>" class="action-btn charge-btn">Réactiver</a>
+                <a href="employes.php?emp_action=reactiver&id=<?php echo $row['id_employe']; ?>&csrf_token=<?php echo urlencode($_SESSION['csrf_token']); ?>" class="action-btn charge-btn">Réactiver</a>
             <?php endif; ?>
         </td>
     </tr>

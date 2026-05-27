@@ -8,6 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_resa'])) {
     if (session_status() === PHP_SESSION_NONE) session_start();
     $is_manager_check = ($_SESSION['user_role'] ?? '') === 'Manager';
     if (!$is_manager_check) { header('Location: index.php'); exit(); }
+    csrf_verify();
 
     $action = $_POST['action_resa'];
     $id     = (int)($_POST['id_reservation'] ?? 0);
@@ -54,8 +55,9 @@ if (!empty($search_date)) {
 
 // Message flash
 $message      = isset($_GET['message']) ? urldecode($_GET['message']) : '';
-$message_type = $_GET['type'] ?? 'success';
-if ($message) echo '<div class="message '.$message_type.'">'.htmlspecialchars($message).'</div>';
+$allowed_msg_types = ['success', 'error', 'info', 'warning'];
+$message_type = in_array($_GET['type'] ?? '', $allowed_msg_types) ? $_GET['type'] : 'success';
+if ($message) echo '<div class="message '.htmlspecialchars($message_type).'">'.htmlspecialchars($message).'</div>';
 
 // ================================================================
 // DONNÉES
@@ -174,6 +176,7 @@ function filtrerDemandes(kw) {
             <form method="POST" action="manager.php" style="margin-bottom:8px;">
                 <input type="hidden" name="action_resa"    value="valider">
                 <input type="hidden" name="id_reservation" value="<?php echo $row['id_reservation']; ?>">
+                <input type="hidden" name="csrf_token"     value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                 <?php $veh_dispo = getVehiculesDispos($conn, $row['date_debut_resa'], $row['date_fin_resa']); ?>
                 <select name="id_vehicule" required style="width:100%; margin-bottom:6px; padding:8px; border:1.5px solid #dee2e6; border-radius:6px; font-size:.9em;">
                     <option value="">— Choisir un véhicule —</option>
@@ -197,6 +200,7 @@ function filtrerDemandes(kw) {
             <form method="POST" action="manager.php">
                 <input type="hidden" name="action_resa"    value="refuser">
                 <input type="hidden" name="id_reservation" value="<?php echo $row['id_reservation']; ?>">
+                <input type="hidden" name="csrf_token"     value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                 <button type="submit" class="action-btn cancel-btn" style="width:100%; margin:0;" onclick="return confirm('Refuser cette demande ?')">Refuser</button>
             </form>
         </td>
