@@ -176,6 +176,7 @@ $demandes_actives = $stmt_actives->get_result();
 $stmt_h = $conn->prepare("
     SELECT r.id_reservation, r.date_debut_resa, r.date_fin_resa, r.motif, r.destination,
            r.statut_resa, r.km_debut, r.km_fin, r.date_depart_reel, r.date_retour_reel,
+           r.motif_refus,
            v.marque, v.modele, v.immatriculation
     FROM reservations r
     LEFT JOIN vehicules v ON r.id_vehicule = v.id_vehicule
@@ -379,7 +380,8 @@ $historique = $stmt_h->get_result();
             <?php while ($row = $historique->fetch_assoc()):
                 $search_str = strtolower(
                     $row['destination'].' '.$row['motif'].' '.$row['statut_resa'].' '.
-                    ($row['marque']??'').' '.($row['modele']??'').' '.($row['immatriculation']??'')
+                    ($row['marque']??'').' '.($row['modele']??'').' '.($row['immatriculation']??'').' '.
+                    ($row['motif_refus']??'')
                 );
             ?>
             <tr data-search="<?php echo htmlspecialchars($search_str); ?>"
@@ -397,6 +399,13 @@ $historique = $stmt_h->get_result();
                     <strong><?php echo htmlspecialchars($row['destination'] ?: '—'); ?></strong>
                     <?php if (!empty($row['motif'])): ?>
                         <br><small class="text-muted"><?php echo htmlspecialchars($row['motif']); ?></small>
+                    <?php endif; ?>
+                    <?php if ($row['statut_resa'] === 'Refusée' && !empty($row['motif_refus'])): ?>
+                        <div style="margin-top:5px; background:#f8d7da; border:1px solid #f5c6cb; border-radius:5px; padding:5px 9px; font-size:.82em; color:#842029;">
+                            <strong>Motif du refus :</strong> <?php echo htmlspecialchars($row['motif_refus']); ?>
+                        </div>
+                    <?php elseif ($row['statut_resa'] === 'Refusée'): ?>
+                        <div style="margin-top:5px; color:#6c757d; font-size:.82em; font-style:italic;">Aucun motif précisé.</div>
                     <?php endif; ?>
                 </td>
                 <td data-label="Véhicule">

@@ -21,8 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_resa'])) {
         header('Location: manager.php?message=' . urlencode('✅ Demande validée et véhicule attribué.') . '&type=success');
         exit();
     } elseif ($action === 'refuser') {
-        $stmt = $conn->prepare("UPDATE reservations SET statut_resa='Refusée' WHERE id_reservation=?");
-        $stmt->bind_param("i", $id);
+        $motif_refus = trim($_POST['motif_refus'] ?? '');
+        $stmt = $conn->prepare("UPDATE reservations SET statut_resa='Refusée', motif_refus=? WHERE id_reservation=?");
+        $stmt->bind_param("si", $motif_refus, $id);
         $stmt->execute();
         header('Location: manager.php?message=' . urlencode('❌ Demande refusée.') . '&type=error');
         exit();
@@ -197,18 +198,55 @@ function filtrerDemandes(kw) {
                 <?php endif; ?>
                 <button type="submit" class="action-btn charge-btn" style="width:100%; margin:0;">Valider &amp; Attribuer</button>
             </form>
-            <form method="POST" action="manager.php">
-                <input type="hidden" name="action_resa"    value="refuser">
-                <input type="hidden" name="id_reservation" value="<?php echo $row['id_reservation']; ?>">
-                <input type="hidden" name="csrf_token"     value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
-                <button type="submit" class="action-btn cancel-btn" style="width:100%; margin:0;" onclick="return confirm('Refuser cette demande ?')">Refuser</button>
-            </form>
+            <button type="button" class="action-btn cancel-btn" style="width:100%; margin:0;"
+                    onclick="ouvrirModalRefus(<?php echo $row['id_reservation']; ?>)">Refuser</button>
         </td>
     </tr>
     <?php endwhile; ?>
     </tbody>
 </table>
 <?php endif; ?>
+
+<!-- Modal Refus -->
+<div id="modalRefus" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:10px; padding:28px; max-width:480px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,.2);">
+        <h3 style="margin-top:0; color:#c0392b;">Refuser la demande</h3>
+        <form method="POST" action="manager.php" id="formRefus">
+            <input type="hidden" name="action_resa"    value="refuser">
+            <input type="hidden" name="id_reservation" id="refus_id_reservation">
+            <input type="hidden" name="csrf_token"     value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+            <label for="refus_motif" style="font-weight:600; display:block; margin-bottom:6px;">
+                Motif du refus <small class="text-muted" style="font-weight:normal;">(optionnel)</small>
+            </label>
+            <textarea id="refus_motif" name="motif_refus" rows="4"
+                      placeholder="Expliquez pourquoi la demande est refusée…"
+                      style="width:100%; box-sizing:border-box; padding:10px; border:1.5px solid #dee2e6; border-radius:6px; font-size:.9em; resize:vertical;"></textarea>
+            <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end;">
+                <button type="button" onclick="fermerModalRefus()"
+                        style="padding:9px 18px; border:1.5px solid #6c757d; background:#fff; color:#6c757d; border-radius:6px; cursor:pointer;">Annuler</button>
+                <button type="submit" class="action-btn cancel-btn" style="margin:0;">Confirmer le refus</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function ouvrirModalRefus(idResa) {
+    document.getElementById('refus_id_reservation').value = idResa;
+    document.getElementById('refus_motif').value = '';
+    const m = document.getElementById('modalRefus');
+    m.style.display = 'flex';
+    setTimeout(() => document.getElementById('refus_motif').focus(), 50);
+}
+function fermerModalRefus() {
+    document.getElementById('modalRefus').style.display = 'none';
+}
+document.getElementById('modalRefus').addEventListener('click', function(e) {
+    if (e.target === this) fermerModalRefus();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') fermerModalRefus();
+});
+</script>
 
 <hr>
 
@@ -286,6 +324,11 @@ function filtrerDemandes(kw) {
             <td data-label="Destination">
                 <strong><?php echo htmlspecialchars($row['destination'] ?: '—'); ?></strong>
                 <?php if (!empty($row['motif'])): ?><br><small class="text-muted"><?php echo htmlspecialchars($row['motif']); ?></small><?php endif; ?>
+                <?php if (!empty($row['motif_refus'])): ?>
+                    <div style="margin-top:4px; background:#f8d7da; padding:4px 8px; border-radius:4px; font-size:.8em; border:1px solid #f5c6cb;">
+                        <strong>Motif refus :</strong> <?php echo htmlspecialchars($row['motif_refus']); ?>
+                    </div>
+                <?php endif; ?>
                 <?php if (!empty($row['commentaire_depart'])): ?>
                     <div style="margin-top:4px; background:#fff3cd; padding:3px 7px; border-radius:4px; font-size:.8em; border:1px solid #ffeeba;"><?php echo htmlspecialchars($row['commentaire_depart']); ?></div>
                 <?php endif; ?>
