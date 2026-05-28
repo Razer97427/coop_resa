@@ -348,7 +348,7 @@ Statut : 🏁 Terminée
 | 🏢 **Organisation** | TERRACOOP — Coopérative agricole |
 | 💻 **Service** | Service Informatique |
 | 📧 **Contact** | service.informatique@terracoop.re |
-| 🗓️ **Version actuelle** | v10.3.2 (2026) |
+| 🗓️ **Version actuelle** | v10.3.4 (2026) |
 | 🌍 **Fuseau horaire** | Indian/Reunion — UTC+4 |
 
 ---
