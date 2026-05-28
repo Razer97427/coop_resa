@@ -58,6 +58,8 @@ body {
     background: linear-gradient(90deg, #0d3b8c 0%, #1a56db 55%, #1d68e8 100%);
     color: #fff;
     height: 62px;
+    min-height: 62px;
+    max-height: 62px;
     padding: 0 24px;
     box-shadow: 0 2px 14px rgba(13,59,140,0.32);
     border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -67,6 +69,8 @@ body {
     position: sticky;
     top: 0;
     z-index: 1000;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .header-content {
@@ -217,6 +221,9 @@ body {
 }
 .nav-logout:hover { background: #dc3545; }
 
+/* Neutralise le margin-top global "button {}" dans le header */
+.main-header button { margin-top: 0; }
+
 /* ── Hamburger mobile ── */
 .menu-toggle {
     display: none;
@@ -227,7 +234,7 @@ body {
     cursor: pointer;
     padding: 6px 8px;
     width: auto;
-    margin-left: auto;
+    margin: 0 0 0 auto;
     flex-shrink: 0;
 }
 .menu-toggle span {
@@ -717,7 +724,7 @@ select option.perso { font-style: italic; color: #6c757d; }
     .content { padding: 15px 12px; }
     
     /* Header mobile */
-    .main-header { height: auto; padding: 12px 16px; }
+    .main-header { height: auto; min-height: unset; max-height: unset; overflow: visible; padding: 12px 16px; }
     .header-content { flex-wrap: wrap; }
     .header-brand { flex: 1; border-right: none; padding-right: 0; }
     .menu-toggle { display: flex; }

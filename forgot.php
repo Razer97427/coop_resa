@@ -22,6 +22,7 @@ $message = '';
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $matricule = trim($_POST['matricule'] ?? '');
 
     if (empty($matricule)) {
@@ -287,6 +288,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php else: ?>
             <form action="forgot.php" method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <div class="field-group">
                     <label for="matricule">Matricule</label>
                     <input type="text" id="matricule" name="matricule" required autofocus

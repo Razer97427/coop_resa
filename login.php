@@ -9,7 +9,22 @@ $error_message = '';
 $logout_message   = isset($_GET['logout']) && $_GET['logout'] == '1';
 $session_expired  = isset($_GET['session_expired']) && $_GET['session_expired'] == '1';
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+// ── Connexion administrateur 2FA ───────────────────────────────────────────
+$admin_error = '';
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['admin_login'])) {
+    csrf_verify();
+    $admin_pass = $_POST['admin_password'] ?? '';
+    if (hash_equals(PASS_ADMIN_TOTP, $admin_pass)) {
+        session_regenerate_id(true);
+        $_SESSION['admin_2fa_access'] = true;
+        header('Location: admin_2fa.php');
+        exit();
+    }
+    $admin_error = "Mot de passe administrateur incorrect.";
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
+    csrf_verify();
     $matricule       = trim($_POST['matricule'] ?? '');
     $password_saisi  = $_POST['password'] ?? '';
 
@@ -254,6 +269,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <?php endif; ?>
 
         <form action="login.php" method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
             <div class="field-group">
                 <label for="matricule">Matricule</label>
                 <input type="text" id="matricule" name="matricule" required autofocus
@@ -275,6 +291,49 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </div>
 
 <p class="login-footer">Accès réservé au personnel TERRACOOP</p>
+
+<?php if (isset($_GET['admin'])): ?>
+
+<div class="login-card" style="margin-top:24px;">
+    <div class="login-card-header" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
+        <div class="login-logo" style="background:rgba(255,255,255,0.12);">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4.18l6 2.67V11c0 3.82-2.56 7.4-6 8.54-3.44-1.14-6-4.72-6-8.54V7.85l6-2.67z"/>
+            </svg>
+        </div>
+        <div>
+            <div class="login-brand-name">TERRACOOP</div>
+            <div class="login-brand-sub">Accès Administrateur</div>
+        </div>
+    </div>
+    <div class="login-card-body">
+        <h2>Gestion 2FA</h2>
+
+        <?php if ($admin_error): ?>
+            <div class="msg-error"><?php echo htmlspecialchars($admin_error); ?></div>
+        <?php endif; ?>
+
+        <form action="login.php?admin=1" method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+            <input type="hidden" name="admin_login" value="1">
+            <div class="field-group">
+                <label for="admin_password">Mot de passe administrateur</label>
+                <input type="password" id="admin_password" name="admin_password" required autofocus placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn-login" style="background:#1a1a2e;">Accéder à l'administration</button>
+        </form>
+
+        <a href="login.php" style="display:block; text-align:center; margin-top:14px; font-size:0.83rem; color:#6c757d; text-decoration:none;">
+            ← Retour à la connexion
+        </a>
+    </div>
+</div>
+
+<?php else: ?>
+<p style="text-align:center; margin-top:10px;">
+    <a href="login.php?admin=1" style="color:rgba(255,255,255,0.2); font-size:0.65rem; text-decoration:none; letter-spacing:0.05em;">⚙</a>
+</p>
+<?php endif; ?>
 
 </body>
 </html>
