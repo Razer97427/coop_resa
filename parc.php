@@ -143,7 +143,6 @@ if ($message) echo '<div class="message '.$message_type.'">'.htmlspecialchars($m
 <div class="tabs" style="display:flex; gap:4px; margin-bottom:24px; border-bottom:2px solid #dee2e6;">
     <a href="parc.php?tab=vehicules"    class="tab-btn <?php echo $tab==='vehicules'    ? 'active' : ''; ?>">🚗 Véhicules</a>
     <a href="parc.php?tab=affectations" class="tab-btn <?php echo $tab==='affectations' ? 'active' : ''; ?>">🔑 Affectations</a>
-    <a href="parc.php?tab=conges"       class="tab-btn <?php echo $tab==='conges'       ? 'active' : ''; ?>">🏖️ Absences</a>
     <a href="parc.php?tab=vue"          class="tab-btn <?php echo $tab==='vue'          ? 'active' : ''; ?>">📊 Vue d'ensemble</a>
 </div>
 
@@ -813,178 +812,6 @@ document.getElementById('searchAff').addEventListener('keydown', e => { if (e.ke
 </script>
 
 <!-- ================================================================ -->
-<!-- ONGLET CONGÉS / ABSENCES                                         -->
-<!-- ================================================================ -->
-<?php elseif ($tab === 'conges'): ?>
-
-<div style="background:#e8f4fd; border:1px solid #bee5eb; border-radius:8px; padding:14px 18px; margin-bottom:20px; color:#0c5460;">
-    ℹ️ Les absences sont importées automatiquement depuis votre système RH via script CSV.<br>
-    <small>Ce tableau est en <strong>lecture seule</strong>. Pour toute correction, modifiez le fichier source CSV.</small>
-</div>
-
-<div class="filter-bar">
-    <div class="search-wrap">
-        <svg class="ico-search" viewBox="0 0 24 24"><path d="M21 20l-4.35-4.35A7.5 7.5 0 1 0 15.65 17.65L20 22l1-2zm-9-3a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/></svg>
-        <input type="text" id="searchAbs" placeholder="Rechercher un employé…" oninput="filtrerAbs()" autocomplete="off">
-        <button class="clear-btn" id="clearSearchAbs" onclick="clearAndFilter('searchAbs','clearSearchAbs',filtrerAbs)" title="Effacer">&times;</button>
-    </div>
-    <select id="filtreStatutAbs" onchange="filtrerAbs()">
-        <option value="">— Toutes les absences —</option>
-        <option value="en-cours">🟢 En cours</option>
-        <option value="a-venir">📅 À venir</option>
-        <option value="aucune">Aucune à venir</option>
-    </select>
-    <button class="btn-reset" onclick="resetAbs()">↺ Réinitialiser</button>
-</div>
-
-<div class="table-toolbar">
-    <h3>Absences par employé</h3>
-    <span class="count-badge" id="countAbs"></span>
-    <small class="text-muted" style="font-size:.78em; margin-left:4px;">Cliquez sur "Voir" pour le détail</small>
-</div>
-
-<?php if ($employes_aff->num_rows === 0): ?>
-    <p class="text-muted" style="font-style:italic;">Aucun employé avec véhicule attitré.</p>
-<?php else: ?>
-<table id="tableAbs">
-    <thead>
-        <tr>
-            <th class="sortable" onclick="sortTable('tableAbs',0)">Employé</th>
-            <th>Matricule</th>
-            <th>Véhicule</th>
-            <th>Prochaine absence</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-    <?php while ($emp = $employes_aff->fetch_assoc()):
-        $stmt_c = $conn->prepare("SELECT date_debut, date_fin, motif FROM conges WHERE id_employe=? ORDER BY date_debut ASC");
-        $stmt_c->bind_param("i", $emp['id_employe']);
-        $stmt_c->execute();
-        $cres = $stmt_c->get_result();
-        $all_conges = [];
-        while ($c = $cres->fetch_assoc()) $all_conges[] = $c;
-
-        $prochaine = null;
-        foreach ($all_conges as $c) {
-            if (strtotime($c['date_fin']) >= time()) { $prochaine = $c; break; }
-        }
-        $nb_conges = count($all_conges);
-        $en_cours_now = $prochaine && strtotime($prochaine['date_debut']) <= time() && strtotime($prochaine['date_fin']) >= time();
-        $statut_abs = $prochaine ? ($en_cours_now ? 'en-cours' : 'a-venir') : 'aucune';
-    ?>
-    <tr class="emp-row"
-        data-id="<?php echo $emp['id_employe']; ?>"
-        data-search="<?php echo strtolower(htmlspecialchars($emp['nom'].' '.$emp['prenom'].' '.$emp['matricule'])); ?>"
-        data-statut="<?php echo $statut_abs; ?>">
-        <td data-label="Employé"><strong><?php echo htmlspecialchars($emp['prenom'].' '.$emp['nom']); ?></strong></td>
-        <td data-label="Matricule"><small class="text-muted"><?php echo htmlspecialchars($emp['matricule']); ?></small></td>
-        <td data-label="Véhicule">
-            🔑 <?php echo htmlspecialchars($emp['marque'].' '.$emp['modele']); ?><br>
-            <small class="text-muted"><?php echo htmlspecialchars($emp['immatriculation']); ?></small>
-        </td>
-        <td data-label="Prochaine absence">
-            <?php if ($prochaine): ?>
-                <span style="background:<?php echo $en_cours_now?'#d4edda':'#fff3cd'; ?>;color:<?php echo $en_cours_now?'#155724':'#856404'; ?>;font-size:.82em;padding:3px 8px;border-radius:4px;">
-                    <?php echo $en_cours_now ? '🟢 En cours' : '📅 À venir'; ?>
-                    — du <?php echo date('d/m/Y', strtotime($prochaine['date_debut'])); ?> au <?php echo date('d/m/Y', strtotime($prochaine['date_fin'])); ?>
-                </span>
-            <?php else: ?>
-                <span class="text-muted" style="font-size:.85em;">Aucune à venir</span>
-            <?php endif; ?>
-        </td>
-        <td style="text-align:right;">
-            <?php if ($nb_conges > 0): ?>
-                <button onclick="toggleAbs(<?php echo $emp['id_employe']; ?>, this)" class="action-btn charge-btn" style="width:auto;margin:0;padding:6px 14px;font-size:.85em;">
-                    Voir (<?php echo $nb_conges; ?>)
-                </button>
-            <?php else: ?>
-                <span class="text-muted">—</span>
-            <?php endif; ?>
-        </td>
-    </tr>
-    <?php if ($nb_conges > 0): ?>
-    <tr id="detail-<?php echo $emp['id_employe']; ?>" style="display:none; background:#f8f9fa;">
-        <td colspan="5" style="padding:0;">
-            <table style="width:100%; margin:0; box-shadow:none; border-radius:0; background:#f8f9fa;">
-                <thead>
-                    <tr style="background:#e9ecef;">
-                        <th style="padding:8px 16px; font-size:.82em;">Période</th>
-                        <th style="padding:8px 16px; font-size:.82em;">Motif</th>
-                        <th style="padding:8px 16px; font-size:.82em;">Statut</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($all_conges as $c):
-                    $en = strtotime($c['date_debut']) <= time() && strtotime($c['date_fin']) >= time();
-                    $pa = strtotime($c['date_fin']) < time();
-                ?>
-                <tr style="border-bottom:1px solid #dee2e6;">
-                    <td style="padding:8px 16px; font-size:.88em;">
-                        Du <strong><?php echo date('d/m/Y', strtotime($c['date_debut'])); ?></strong>
-                        au <strong><?php echo date('d/m/Y', strtotime($c['date_fin'])); ?></strong>
-                    </td>
-                    <td style="padding:8px 16px; font-size:.88em;"><?php echo htmlspecialchars($c['motif'] ?: '—'); ?></td>
-                    <td style="padding:8px 16px;">
-                        <?php if ($en): ?>
-                            <span style="background:#d4edda;color:#155724;font-size:.8em;padding:2px 8px;border-radius:50px;">🟢 En cours</span>
-                        <?php elseif ($pa): ?>
-                            <span style="background:#e2e3e5;color:#383d41;font-size:.8em;padding:2px 8px;border-radius:50px;">Terminée</span>
-                        <?php else: ?>
-                            <span style="background:#fff3cd;color:#856404;font-size:.8em;padding:2px 8px;border-radius:50px;">📅 À venir</span>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </td>
-    </tr>
-    <?php endif; ?>
-    <?php endwhile; ?>
-    <tr class="no-result" style="display:none;"><td colspan="5">Aucun employé ne correspond à cette recherche.</td></tr>
-    </tbody>
-</table>
-<?php endif; ?>
-
-<script>
-function filtrerAbs() {
-    const kw     = document.getElementById('searchAbs').value.toLowerCase();
-    const statut = document.getElementById('filtreStatutAbs').value;
-
-    document.getElementById('clearSearchAbs').style.display = kw ? 'block' : 'none';
-    document.getElementById('filtreStatutAbs').classList.toggle('active-filter', !!statut);
-
-    let nb = 0;
-    document.querySelectorAll('#tableAbs tbody tr.emp-row').forEach(tr => {
-        const ok = (!kw || tr.dataset.search.includes(kw))
-                && (!statut || tr.dataset.statut === statut);
-        tr.style.display = ok ? '' : 'none';
-        // Fermer le détail si la ligne est masquée
-        const detail = document.getElementById('detail-' + tr.dataset.id);
-        if (detail && !ok) detail.style.display = 'none';
-        if (ok) nb++;
-    });
-    document.getElementById('countAbs').textContent = nb + ' employé' + (nb > 1 ? 's' : '');
-    document.querySelector('#tableAbs .no-result').style.display = nb === 0 ? '' : 'none';
-}
-function resetAbs() {
-    document.getElementById('searchAbs').value = '';
-    document.getElementById('filtreStatutAbs').value = '';
-    filtrerAbs();
-}
-function toggleAbs(id, btn) {
-    const d = document.getElementById('detail-' + id);
-    if (!d) return;
-    const open = d.style.display !== 'none';
-    d.style.display = open ? 'none' : 'table-row';
-    btn.textContent = open ? btn.textContent.replace('▲','').trim() + ' ▼' : btn.textContent.replace('▼','').trim() + ' ▲';
-}
-document.addEventListener('DOMContentLoaded', filtrerAbs);
-document.getElementById('searchAbs').addEventListener('keydown', e => { if (e.key === 'Escape') resetAbs(); });
-</script>
-
-<!-- ================================================================ -->
 <!-- ONGLET VUE D'ENSEMBLE                                            -->
 <!-- ================================================================ -->
 <?php elseif ($tab === 'vue'): ?>
@@ -999,7 +826,13 @@ $parc_vue = $conn->query("
     LEFT JOIN affectations_fixes af ON v.id_vehicule=af.id_vehicule
     LEFT JOIN employes e ON af.id_employe=e.id_employe
     WHERE v.actif=1
-    ORDER BY v.est_communal DESC, v.marque
+    ORDER BY
+        CASE
+            WHEN v.est_communal = 1 THEN 0
+            WHEN (SELECT c.date_fin FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) IS NOT NULL THEN 1
+            ELSE 2
+        END,
+        v.marque
 ");
 ?>
 
@@ -1218,6 +1051,9 @@ function sortTable(tableId, colIdx) {
         afficherPageVue();
     }
 }
+</script>
+
+<!-- ================================================================ -->
 </script>
 
 <?php $conn->close(); include 'includes/footer.php'; ?>

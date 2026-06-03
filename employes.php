@@ -184,6 +184,7 @@ if ($search !== '') {
             <th>Email</th>
             <th>Véhicule attitré</th>
             <th>Statut</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -211,6 +212,11 @@ if ($search !== '') {
                 <?php echo $row['actif'] ? 'Actif' : 'Inactif'; ?>
             </span>
         </td>
+        <td data-label="Actions">
+            <?php if (!empty($row['marque'])): ?>
+                <button class="action-btn" onclick="voirConges(<?php echo (int)$row['id_employe']; ?>, '<?php echo htmlspecialchars($row['prenom'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($row['nom'], ENT_QUOTES); ?>')" style="margin:0;">📅 Congés</button>
+            <?php endif; ?>
+        </td>
     </tr>
     <?php endwhile; ?>
     </tbody>
@@ -218,7 +224,61 @@ if ($search !== '') {
 
 <div id="empPagination"></div>
 
+<!-- Modal pour voir les congés -->
+<div id="modalConges" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.5); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:12px; max-width:500px; width:90%; max-height:70vh; overflow-y:auto; box-shadow:0 4px 20px rgba(0,0,0,.3);">
+        <div style="padding:20px; border-bottom:1px solid #dee2e6; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">📅 Absences de <span id="modalEmpName"></span></h3>
+            <button onclick="fermerModalConges()" style="background:none; border:none; font-size:1.5em; cursor:pointer; color:#6c757d;">×</button>
+        </div>
+        <div id="congesContent" style="padding:20px;"></div>
+    </div>
+</div>
+
 <script>
+function voirConges(idEmp, prenom, nom) {
+    const modal = document.getElementById('modalConges');
+    const content = document.getElementById('congesContent');
+    document.getElementById('modalEmpName').textContent = prenom + ' ' + nom;
+    modal.style.display = 'flex';
+
+    fetch('includes/api_conges.php?id_employe=' + idEmp)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                content.innerHTML = '<p style="color:#dc3545;">Erreur : ' + escHtml(data.error) + '</p>';
+            } else if (data.conges.length === 0) {
+                content.innerHTML = '<p style="color:#6c757d;">Aucune absence enregistrée.</p>';
+            } else {
+                let html = '<table style="width:100%; border-collapse:collapse;">';
+                data.conges.forEach(c => {
+                    html += '<tr style="border-bottom:1px solid #dee2e6;">';
+                    html += '<td style="padding:10px; color:#555;"><strong>' + escHtml(c.date_debut) + '</strong></td>';
+                    html += '<td style="padding:10px; text-align:center; color:#999;">→</td>';
+                    html += '<td style="padding:10px; color:#555;"><strong>' + escHtml(c.date_fin) + '</strong></td>';
+                    html += '</tr>';
+                });
+                html += '</table>';
+                content.innerHTML = html;
+            }
+        })
+        .catch(err => {
+            content.innerHTML = '<p style="color:#dc3545;">Erreur réseau : ' + escHtml(err.message) + '</p>';
+        });
+}
+
+function fermerModalConges() {
+    document.getElementById('modalConges').style.display = 'none';
+}
+
+function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.getElementById('modalConges').addEventListener('click', function(e) {
+    if (e.target === this) fermerModalConges();
+});
+</script>
 (function () {
     const inp        = document.getElementById('q');
     const btnClear   = document.getElementById('btnClearEmp');
