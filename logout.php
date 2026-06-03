@@ -1,10 +1,9 @@
 <?php
 // logout.php - Gestion de la déconnexion
-session_start();
+require_once 'config.php'; // démarre la session avec les bons paramètres sécurisés
 
 // Supprimer le token de session en base
 if (isset($_SESSION['session_token'])) {
-    require_once 'config.php';
     $del_s = $conn->prepare("DELETE FROM sessions_auto WHERE session_token = ?");
     $del_s->bind_param("s", $_SESSION['session_token']);
     $del_s->execute();

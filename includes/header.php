@@ -17,14 +17,51 @@ if (!$is_manager && in_array($current_page, $manager_pages)) {
 }
 
 $page_titles = [
-    'index.php'    => 'Mes demandes',
-    'manager.php'  => 'Gestion des demandes',
-    'parc.php'     => 'Parc automobile',
-    'employes.php' => 'Collaborateurs',
-    'planning.php' => 'Planning',
-    'settings.php' => 'Paramètres du compte',
-    'conges.php'   => 'Absences',
+    'index.php'                  => 'Mes demandes',
+    'manager.php'                => 'Gestion des demandes',
+    'parc.php'                   => 'Parc automobile',
+    'employes.php'               => 'Collaborateurs',
+    'planning.php'               => 'Planning',
+    'settings.php'               => 'Paramètres du compte',
+    'conges.php'                 => 'Absences',
+    'pointage_kilometrage.php'   => 'Pointage kilométrage',
 ];
+
+$has_vehicule_affecte = false;
+$nb_km_manquant = 0;
+if (isset($conn, $_SESSION['user_id'])) {
+    $uid_af = (int)$_SESSION['user_id'];
+    $chk_af = $conn->prepare("
+        SELECT af.id_vehicule
+        FROM affectations_fixes af
+        WHERE af.id_employe = ?
+        LIMIT 1
+    ");
+    if ($chk_af) {
+        $chk_af->bind_param("i", $uid_af);
+        $chk_af->execute();
+        $row_af = $chk_af->get_result()->fetch_assoc();
+        $chk_af->close();
+        if ($row_af) {
+            $has_vehicule_affecte = true;
+            $mois_hdr  = (int)date('n');
+            $annee_hdr = (int)date('Y');
+            $id_veh_hdr = (int)$row_af['id_vehicule'];
+            $chk_km = $conn->prepare("
+                SELECT 1 FROM pointages_kilometrage
+                WHERE id_vehicule = ? AND mois = ? AND annee = ?
+                LIMIT 1
+            ");
+            if ($chk_km) {
+                $chk_km->bind_param("iii", $id_veh_hdr, $mois_hdr, $annee_hdr);
+                $chk_km->execute();
+                $chk_km->store_result();
+                $nb_km_manquant = ($chk_km->num_rows === 0) ? 1 : 0;
+                $chk_km->close();
+            }
+        }
+    }
+}
 $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOOP';
 ?>
 <!DOCTYPE html>
@@ -66,6 +103,15 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                 <a href="index.php" class="nav-link <?php echo $current_page==='index.php' ? 'active' : ''; ?>">
                     Accueil
                 </a>
+
+                <?php if ($has_vehicule_affecte): ?>
+                    <a href="pointage_kilometrage.php" class="nav-link <?php echo $current_page==='pointage_kilometrage.php' ? 'active' : ''; ?>">
+                        Pointage Véhicule
+                        <?php if ($nb_km_manquant > 0): ?>
+                            <span class="nav-badge"><?php echo $nb_km_manquant; ?></span>
+                        <?php endif; ?>
+                    </a>
+                <?php endif; ?>
 
                 <?php if ($is_manager): ?>
                     <a href="manager.php" class="nav-link <?php echo $current_page==='manager.php' ? 'active' : ''; ?>">

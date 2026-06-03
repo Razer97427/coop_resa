@@ -9,6 +9,24 @@ $error_message = '';
 $logout_message   = isset($_GET['logout']) && $_GET['logout'] == '1';
 $session_expired  = isset($_GET['session_expired']) && $_GET['session_expired'] == '1';
 
+// Pages autorisées comme cible de redirection post-login
+$redirect_whitelist = ['index.php', 'manager.php', 'pointage_kilometrage.php', 'planning.php', 'settings.php'];
+if (isset($_GET['redirect']) && in_array($_GET['redirect'], $redirect_whitelist, true)) {
+    $_SESSION['redirect_after_login'] = $_GET['redirect'];
+}
+
+// Déjà connecté → rediriger directement sans repasser par le login
+if (isset($_SESSION['user_id']) && !$logout_message && !$session_expired) {
+    $cible = $_SESSION['redirect_after_login'] ?? null;
+    if (!empty($cible) && in_array($cible, $redirect_whitelist, true)) {
+        unset($_SESSION['redirect_after_login']);
+        header('Location: ' . $cible);
+    } else {
+        header('Location: ' . (($_SESSION['user_role'] ?? '') === 'Manager' ? 'manager.php' : 'index.php'));
+    }
+    exit();
+}
+
 // ── Connexion administrateur 2FA ───────────────────────────────────────────
 $admin_error = '';
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['admin_login'])) {

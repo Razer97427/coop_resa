@@ -364,8 +364,8 @@ $other_count = count(array_filter($all_sessions, fn($s) => $s['session_token'] !
             </svg>
         </div>
         <div class="card-text">
-            <div class="card-title">Mot de passe</div>
-            <div class="card-desc">Modifier votre mot de passe de connexion</div>
+            <div class="card-title">Compte et Mot de passe</div>
+            <div class="card-desc">Modifier les informations de connexion de votre compte</div>
         </div>
         <div class="card-right">
             <svg class="card-arrow" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>

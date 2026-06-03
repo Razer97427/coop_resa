@@ -1,7 +1,8 @@
 <?php
 // config.php - Paramètres de connexion et démarrage de session
-require '../config.php';
+require __DIR__ . '/../config.php';
 date_default_timezone_set('Indian/Reunion');
+//define('ALERTE_TOKEN', 'terracoop97425!');
 
 // ── En-têtes de sécurité HTTP ──────────────────────────────────────────────
 header_remove('X-Powered-By');
@@ -70,6 +71,20 @@ $conn->query("CREATE TABLE IF NOT EXISTS sessions_auto (
     last_activity DATETIME NOT NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_token (session_token)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$conn->query("CREATE TABLE IF NOT EXISTS pointages_kilometrage (
+    id_pointage   INT AUTO_INCREMENT PRIMARY KEY,
+    id_vehicule   INT NOT NULL,
+    id_employe    INT NOT NULL,
+    kilometrage_reel INT UNSIGNED NOT NULL,
+    date_pointage DATE NOT NULL,
+    mois          TINYINT UNSIGNED NOT NULL,
+    annee         SMALLINT UNSIGNED NOT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_vehicule_mois (id_vehicule, mois, annee),
+    INDEX idx_vehicule (id_vehicule),
+    INDEX idx_employe  (id_employe)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 // Vérifier que le token de session est toujours valide (non révoqué)

@@ -68,7 +68,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                 unset($_SESSION['2fa_pending_user_id']);
 
-                $redirect = ($user['role'] === 'Manager') ? 'manager.php' : 'index.php';
+                $redirect_whitelist = ['index.php', 'manager.php', 'pointage_kilometrage.php', 'planning.php', 'settings.php'];
+                if (!empty($_SESSION['redirect_after_login']) && in_array($_SESSION['redirect_after_login'], $redirect_whitelist, true)) {
+                    $redirect = $_SESSION['redirect_after_login'];
+                    unset($_SESSION['redirect_after_login']);
+                } else {
+                    $redirect = ($user['role'] === 'Manager') ? 'manager.php' : 'index.php';
+                }
                 header('Location: ' . $redirect);
                 exit;
             } else {

@@ -213,9 +213,7 @@ if ($search !== '') {
             </span>
         </td>
         <td data-label="Actions">
-            <?php if (!empty($row['marque'])): ?>
-                <button class="action-btn" onclick="voirConges(<?php echo (int)$row['id_employe']; ?>, '<?php echo htmlspecialchars($row['prenom'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($row['nom'], ENT_QUOTES); ?>')" style="margin:0;">📅 Congés</button>
-            <?php endif; ?>
+            <button class="action-btn" onclick="voirConges(<?php echo (int)$row['id_employe']; ?>, '<?php echo htmlspecialchars($row['prenom'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($row['nom'], ENT_QUOTES); ?>')" style="margin:0;">📅 Congés</button>
         </td>
     </tr>
     <?php endwhile; ?>
@@ -279,6 +277,7 @@ document.getElementById('modalConges').addEventListener('click', function(e) {
     if (e.target === this) fermerModalConges();
 });
 </script>
+<script>
 (function () {
     const inp        = document.getElementById('q');
     const btnClear   = document.getElementById('btnClearEmp');

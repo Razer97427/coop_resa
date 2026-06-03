@@ -7,7 +7,9 @@
       "Bash(dir \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" /a /b)",
       "Bash(Get-ChildItem -Path \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" -Filter \"*.sql\" -Force)",
       "Bash(Get-ChildItem -Path \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" -Recurse -Filter \"*.css\")",
-      "Bash(Select-Object -Property FullName)"
+      "Bash(Select-Object -Property FullName)",
+      "Bash(ls -la \"c:\\\\PROJET WEB COOP\" 2>/dev/null | head -30)",
+      "Read(//c/PROJET WEB COOP/**)"
     ]
   }
 }

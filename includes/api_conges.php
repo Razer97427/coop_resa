@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once __DIR__ . '/../config.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -26,7 +26,10 @@ $stmt = $conn->prepare("
     SELECT id_conge, date_debut, date_fin
     FROM conges
     WHERE id_employe = ?
-    ORDER BY date_debut DESC
+    ORDER BY
+        (date_debut < CURDATE()),
+        CASE WHEN date_debut >= CURDATE() THEN date_debut ELSE NULL END ASC,
+        date_debut DESC
 ");
 $stmt->bind_param("i", $id_employe);
 $stmt->execute();
