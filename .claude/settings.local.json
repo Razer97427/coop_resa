@@ -9,7 +9,11 @@
       "Bash(Get-ChildItem -Path \"c:\\\\PROJET WEB COOP\\\\claude maj\\\\gestion-auto\" -Recurse -Filter \"*.css\")",
       "Bash(Select-Object -Property FullName)",
       "Bash(ls -la \"c:\\\\PROJET WEB COOP\" 2>/dev/null | head -30)",
-      "Read(//c/PROJET WEB COOP/**)"
+      "Read(//c/PROJET WEB COOP/**)",
+      "Bash(grep -r \"PASS_ADMIN_TOTP\\\\|define.*PASS\\\\|PASS_ADMIN\" \"c:/PROJET WEB COOP/claude maj/gestion-auto/../\" --include=\"*.php\" -l 2>/dev/null | head -10)",
+      "Read(//c/PROJET WEB COOP/claude maj//**)",
+      "Bash(cd \"/c/PROJET WEB COOP/claude maj/gestion-auto\" && find . -type f -name \"*.json\" -o -name \"*.php\" -o -name \"*.js\" -o -name \"*.html\" | head -50)",
+      "Read(//c/c/PROJET WEB COOP/claude maj/**)"
     ]
   }
 }

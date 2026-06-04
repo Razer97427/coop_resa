@@ -41,15 +41,33 @@ if ($matricule) {
     }
 }
 
-// ── Déverrouillage ────────────────────────────────────────────────────────
-if (isset($_POST['unlock_mod'])) {
-    if ($_POST['pass_admin'] === PASS_ADMIN_TOTP) {
+// Génère un code à 4 chiffres stocké en session ; le mot de passe attendu = floor(code / 25)
+if (empty($_SESSION['admin_challenge'])) {
+    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+}
+$admin_error = '';
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['unlock_mod'])) {
+    $challenge  = (int)($_SESSION['admin_challenge'] ?? 0);
+    $expected   = (int)floor($challenge / 25);
+    $admin_pass = (int)($_POST['pass_admin'] ?? -1);
+    // Régénère le code après chaque tentative (valide ou non)
+    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+    if ($challenge > 0 && $admin_pass === $expected) {
         $show_setup = true;
     } else {
-        $msg      = "Mot de passe maître incorrect.";
-        $msg_type = 'error';
+        $admin_error = "Code incorrect.";
     }
 }
+
+// ── Déverrouillage ────────────────────────────────────────────────────────
+// if (isset($_POST['unlock_mod'])) {
+//     if ($_POST['pass_admin'] === PASS_ADMIN_TOTP) {
+//         $show_setup = true;
+//     } else {
+//         $msg      = "Mot de passe maître incorrect.";
+//         $msg_type = 'error';
+//     }
+// }
 
 // ── Vérification OTP et enregistrement ────────────────────────────────────
 if (isset($_POST['verify_and_update'])) {
@@ -73,17 +91,21 @@ if (isset($_POST['verify_and_update'])) {
 
 // ── Révocation 2FA ────────────────────────────────────────────────────────
 if (isset($_POST['revoke_2fa']) && $user_data) {
-    if (($_POST['pass_revoke'] ?? '') === PASS_ADMIN_TOTP) {
+    $rev_challenge = (int)($_SESSION['admin_challenge'] ?? 0);
+    $rev_expected  = (int)floor($rev_challenge / 25);
+    $rev_pass      = (int)($_POST['pass_revoke'] ?? -1);
+    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+    if ($rev_challenge > 0 && $rev_pass === $rev_expected) {
         $stmt = $conn->prepare("UPDATE employes SET two_fa_secret = NULL WHERE matricule = ?");
         $stmt->bind_param("s", $matricule);
         if ($stmt->execute() && $stmt->affected_rows > 0) {
-            $msg      = "2FA révoqué pour <strong>" . htmlspecialchars($matricule) . "</strong>. L'employé ne pourra plus se connecter jusqu'à reconfiguration.";
+            $msg      = "2FA révoqué pour <strong>" . htmlspecialchars($user_data['prenom'] . ' ' . $user_data['nom']) . " (" . htmlspecialchars($matricule) . ")</strong>. L'employé ne pourra plus se connecter jusqu'à reconfiguration.";
             $msg_type = 'success';
             $user_data['two_fa_secret'] = null;
         }
         $stmt->close();
     } else {
-        $msg      = "Mot de passe maître incorrect. Révocation annulée.";
+        $msg      = "Code incorrect. Révocation annulée.";
         $msg_type = 'error';
     }
 }
@@ -482,9 +504,29 @@ if ($show_setup) {
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <input type="hidden" name="matricule" value="<?php echo htmlspecialchars($user_data['matricule']); ?>">
                     <div class="field-group">
-                        <label for="pass_admin">Mot de passe maître</label>
-                        <input type="password" id="pass_admin" name="pass_admin" required placeholder="••••••••">
+                        <label for="pass_admin">Code de déverrouillage <span style="color:#e53e3e; font-weight:700;">(Obligatoire pour afficher le QR CODE)</span></label>
+                        <div style="
+                            background: linear-gradient(135deg, #1a1a2e, #2d2d54);
+                            color: #fff;
+                            font-size: 2rem;
+                            font-weight: 800;
+                            letter-spacing: 0.35em;
+                            text-align: center;
+                            padding: 14px 10px;
+                            border-radius: 8px;
+                            margin-bottom: 10px;
+                            font-variant-numeric: tabular-nums;
+                            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+                        "><?php echo $_SESSION['admin_challenge']; ?></div>
+                        
+                        <input type="number" id="pass_admin" name="pass_admin" required placeholder="Code" style="text-align:center; font-size:1.1rem; letter-spacing:0.1em;">
                     </div>
+                    <?php if ($admin_error): ?>
+                        <div class="msg msg-error" style="margin-bottom:10px;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                            <span><?php echo htmlspecialchars($admin_error); ?></span>
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" name="unlock_mod" class="btn btn-unlock">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
                         Déverrouiller
@@ -547,8 +589,22 @@ if ($show_setup) {
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                         <input type="hidden" name="matricule" value="<?php echo htmlspecialchars($user_data['matricule']); ?>">
                         <div class="field-group">
-                            <label for="pass_revoke">Mot de passe maître pour confirmer</label>
-                            <input type="password" id="pass_revoke" name="pass_revoke" required placeholder="••••••••">
+                            <label for="pass_revoke">Code de déverrouillage <span style="color:#e53e3e; font-weight:700;">(essentiel pour modification)</span></label>
+                            <!-- <div style="
+                                background: linear-gradient(135deg, #1a1a2e, #2d2d54);
+                                color: #fff;
+                                font-size: 2rem;
+                                font-weight: 800;
+                                letter-spacing: 0.35em;
+                                text-align: center;
+                                padding: 14px 10px;
+                                border-radius: 8px;
+                                margin-bottom: 10px;
+                                font-variant-numeric: tabular-nums;
+                                box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+                            "><?php echo $_SESSION['admin_challenge']; ?></div> -->
+        
+                            <input type="number" id="pass_revoke" name="pass_revoke" required placeholder="Code" style="text-align:center; font-size:1.1rem; letter-spacing:0.1em;">
                         </div>
                         <button type="submit" name="revoke_2fa" class="btn btn-revoke">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>

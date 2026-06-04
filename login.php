@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-
+// POUR LA PARTIE ADMIN IL FAUT DIVISER LE CODE PAR 25 POUR OBTENIR LE MOT DE PASSE ATTENDU (ex: code=1234 → mot de passe attendu=49)
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -28,17 +28,26 @@ if (isset($_SESSION['user_id']) && !$logout_message && !$session_expired) {
 }
 
 // ── Connexion administrateur 2FA ───────────────────────────────────────────
+// Génère un code à 4 chiffres stocké en session ; le mot de passe attendu = floor(code / 25)
+if (isset($_GET['admin']) && empty($_SESSION['admin_challenge'])) {
+    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+}
+
 $admin_error = '';
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['admin_login'])) {
     csrf_verify();
-    $admin_pass = $_POST['admin_password'] ?? '';
-    if (hash_equals(PASS_ADMIN_TOTP, $admin_pass)) {
+    $challenge  = (int)($_SESSION['admin_challenge'] ?? 0);
+    $expected   = (int)floor($challenge / 25);
+    $admin_pass = (int)($_POST['admin_password'] ?? -1);
+    // Régénère le code après chaque tentative (valide ou non)
+    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+    if ($challenge > 0 && $admin_pass === $expected) {
         session_regenerate_id(true);
         $_SESSION['admin_2fa_access'] = true;
         header('Location: admin_2fa.php');
         exit();
     }
-    $admin_error = "Mot de passe administrateur incorrect.";
+    $admin_error = "Code incorrect.";
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
@@ -331,12 +340,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
             <div class="msg-error"><?php echo htmlspecialchars($admin_error); ?></div>
         <?php endif; ?>
 
+        <div style="text-align:center; margin-bottom:20px;">
+            <div style="font-size:.8rem; color:#6c757d; margin-bottom:6px;">Code de vérification</div>
+            <div style="font-size:2.4rem; font-weight:700; letter-spacing:.25em; color:#1a1a2e; font-family:monospace;">
+                <?php echo $_SESSION['admin_challenge']; ?>
+            </div>
+        </div>
+
         <form action="login.php?admin=1" method="POST">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
             <input type="hidden" name="admin_login" value="1">
             <div class="field-group">
-                <label for="admin_password">Mot de passe administrateur</label>
-                <input type="password" id="admin_password" name="admin_password" required autofocus placeholder="••••••••">
+                <label for="admin_password">Réponse</label>
+                <input type="number" id="admin_password" name="admin_password" required autofocus placeholder="…" autocomplete="off">
             </div>
             <button type="submit" class="btn-login" style="background:#1a1a2e;">Accéder à l'administration</button>
         </form>

@@ -10,7 +10,7 @@ if ($is_manager && isset($conn)) {
     if ($r) $nb_attente = (int)$r->fetch_row()[0];
 }
 
-$manager_pages = ['manager.php', 'parc.php', 'employes.php'];
+$manager_pages = ['manager.php', 'parc.php', 'employes.php', 'manager_kilometrage.php'];
 if (!$is_manager && in_array($current_page, $manager_pages)) {
     header('Location: index.php?message=' . urlencode('Accès réservé.') . '&type=error');
     exit();
@@ -25,6 +25,7 @@ $page_titles = [
     'settings.php'               => 'Paramètres du compte',
     'conges.php'                 => 'Absences',
     'pointage_kilometrage.php'   => 'Pointage kilométrage',
+    'manager_kilometrage.php'    => 'Suivi kilométrique',
 ];
 
 $has_vehicule_affecte = false;
@@ -104,7 +105,7 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                     Accueil
                 </a>
 
-                <?php if ($has_vehicule_affecte): ?>
+                <?php if ($has_vehicule_affecte && !$is_manager): ?>
                     <a href="pointage_kilometrage.php" class="nav-link <?php echo $current_page==='pointage_kilometrage.php' ? 'active' : ''; ?>">
                         Pointage Véhicule
                         <?php if ($nb_km_manquant > 0): ?>
@@ -125,6 +126,12 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                     </a>
                     <a href="employes.php" class="nav-link <?php echo $current_page==='employes.php' ? 'active' : ''; ?>">
                         Equipes
+                    </a>
+                    <a href="manager_kilometrage.php" class="nav-link <?php echo $current_page==='manager_kilometrage.php' ? 'active' : ''; ?>">
+                        Suivi Km
+                        <?php if ($has_vehicule_affecte && $nb_km_manquant > 0): ?>
+                            <span class="nav-badge"><?php echo $nb_km_manquant; ?></span>
+                        <?php endif; ?>
                     </a>
                 <?php endif; ?>
 

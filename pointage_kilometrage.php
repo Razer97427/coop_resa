@@ -2,6 +2,11 @@
 require_once 'config.php';
 if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit(); }
 
+if (($_SESSION['user_role'] ?? '') === 'Manager') {
+    header('Location: manager_kilometrage.php');
+    exit();
+}
+
 $uid = (int)$_SESSION['user_id'];
 
 $mois_fr = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];

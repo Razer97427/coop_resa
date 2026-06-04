@@ -5,16 +5,21 @@
  * dont le pointage kilométrique du mois en cours n'est pas encore renseigné.
  *
  * Utilisation :
- *   - Via cron : php /chemin/vers/alerte_kilometrage.php
+ *   - Via cron : /usr/local/php8.1/bin/php /home/terracoonz/www/gestion-auto/alerte_kilometrage.php
  *   - Via URL  : https://terracoop.re/gestion-auto/alerte_kilometrage.php?token=VOTRE_TOKEN_SECRET
  */
-ini_set('display_errors', 'On');
+ini_set('display_errors', 'Off');
 error_reporting(E_ALL);
+
+date_default_timezone_set('Indian/Reunion');
 
 require_once '/home/terracoonz/www/config.php';
 require_once '/home/terracoonz/www/gestion-auto/vendor/autoload.php';
+
 // ── Sécurité : CLI uniquement OU token secret ──────────────────────────────
-//define('ALERTE_TOKEN', 'terracoop97425!'); // défini dans /home/terracoonz/www/config.php
+if (!defined('ALERTE_TOKEN')) {
+    define('ALERTE_TOKEN', 'terracoop97425!');
+}
 
 $is_cli = (php_sapi_name() === 'cli');
 $is_web = !$is_cli;
