@@ -39,8 +39,13 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
         $s = $conn->prepare("UPDATE vehicules SET est_communal=1-est_communal WHERE id_vehicule=?");
         $s->bind_param("i", $id); $s->execute(); $s->close();
     } elseif ($act === 'supprimer') {
-        $s1 = $conn->prepare("DELETE FROM reservations WHERE id_vehicule=?");
-        $s1->bind_param("i", $id); $s1->execute(); $s1->close();
+        $chk = $conn->prepare("SELECT COUNT(*) as n FROM reservations WHERE id_vehicule=?");
+        $chk->bind_param("i", $id); $chk->execute();
+        $nb = $chk->get_result()->fetch_assoc()['n']; $chk->close();
+        if ($nb > 0) {
+            header('Location: parc.php?message=' . urlencode('❌ Ce véhicule a un historique de ' . $nb . ' réservation(s). Suppression impossible — il restera désactivé dans les archives.') . '&type=error&tab=vehicules');
+            exit();
+        }
         $s2 = $conn->prepare("DELETE FROM affectations_fixes WHERE id_vehicule=?");
         $s2->bind_param("i", $id); $s2->execute(); $s2->close();
         $s3 = $conn->prepare("DELETE FROM vehicules WHERE id_vehicule=? AND actif=0");

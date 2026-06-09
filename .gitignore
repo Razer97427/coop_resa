@@ -1,0 +1,19 @@
+# Base de données
+*.sql
+
+# Fichiers de configuration sensibles
+.env
+*.env.*
+
+# Logs
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+*.swp
+*.swo
+.vscode/
+.idea/

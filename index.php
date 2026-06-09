@@ -1,17 +1,11 @@
 <?php
 require_once 'config.php';
 if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit(); }
-include 'includes/header.php';
 
-$uid          = (int)$_SESSION['user_id'];
-$message      = isset($_GET['message']) ? urldecode($_GET['message']) : '';
-$message_type = $_GET['type'] ?? 'success';
-$restitution_id = (int)($_GET['restitution_id'] ?? 0);
-
-// message affiché dans le HTML via page-narrow
+$uid = (int)$_SESSION['user_id'];
 
 // ================================================================
-// TRAITEMENTS POST
+// TRAITEMENTS POST — avant tout output HTML
 // ================================================================
 
 // 1. Nouvelle demande
@@ -23,9 +17,11 @@ if (isset($_POST['reservation_submit'])) {
     $date_fin    = ($_POST['date_fin']    ?? '') . ' ' . ($_POST['heure_fin']   ?? '00:00') . ':00';
 
     if (strtotime($date_debut) >= strtotime($date_fin)) {
-        echo '<div class="message error">❌ La date/heure de fin doit être après le début.</div>';
+        header('Location: index.php?message=' . urlencode('❌ La date/heure de fin doit être après le début.') . '&type=error');
+        exit();
     } elseif (empty($destination)) {
-        echo '<div class="message error">❌ La destination est obligatoire.</div>';
+        header('Location: index.php?message=' . urlencode('❌ La destination est obligatoire.') . '&type=error');
+        exit();
     } else {
         $stmt = $conn->prepare("INSERT INTO reservations (id_employe, id_vehicule, date_debut_resa, date_fin_resa, motif, destination, statut_resa, km_debut, date_demande) VALUES (?, NULL, ?, ?, ?, ?, 'En attente', 0, NOW())");
         $stmt->bind_param("issss", $uid, $date_debut, $date_fin, $motif, $destination);
@@ -100,7 +96,8 @@ if (isset($_POST['reservation_submit'])) {
             header('Location: index.php?message=' . urlencode('✅ Demande envoyée ! Le manager va vous attribuer un véhicule.') . '&type=success');
             exit();
         }
-        echo '<div class="message error">❌ Erreur technique. Réessayez.</div>';
+        header('Location: index.php?message=' . urlencode('❌ Erreur technique. Réessayez.') . '&type=error');
+        exit();
     }
 }
 
@@ -142,6 +139,15 @@ if (isset($_POST['restitution_submit'])) {
         exit();
     }
 }
+
+// ================================================================
+// OUTPUT HTML — après tous les traitements POST
+// ================================================================
+include 'includes/header.php';
+
+$message        = isset($_GET['message']) ? urldecode($_GET['message']) : '';
+$message_type   = $_GET['type'] ?? 'success';
+$restitution_id = (int)($_GET['restitution_id'] ?? 0);
 
 // ================================================================
 // DONNÉES
