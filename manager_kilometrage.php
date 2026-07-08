@@ -5,6 +5,11 @@ if (($_SESSION['user_role'] ?? '') !== 'Manager') {
     header('Location: index.php?message=' . urlencode('Accès réservé aux managers.') . '&type=error');
     exit();
 }
+// Suivi kilométrique global réservé à Terracoop ; les managers des autres sociétés font le pointage individuel.
+if (empty($IS_TERRACOOP_MANAGER)) {
+    header('Location: pointage_kilometrage.php');
+    exit();
+}
 
 $uid            = (int)$_SESSION['user_id'];
 $mois_fr        = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
@@ -15,6 +20,7 @@ $annee_min      = 2023;
 // ── Tous les véhicules actifs ─────────────────────────────────────────────────
 $res_veh = $conn->query("
     SELECT v.id_vehicule, v.immatriculation, v.marque, v.modele, v.type_carburant, v.kilometrage,
+           v.km_prochaine_revision, v.km_seuil_alerte_revision, v.date_prochain_ct, v.nb_jours_alerte_ct,
            e.nom AS emp_nom, e.prenom AS emp_prenom
     FROM vehicules v
     LEFT JOIN affectations_fixes af ON af.id_vehicule = v.id_vehicule
@@ -69,6 +75,7 @@ if ($annee_extra < $annee_min || $annee_extra >= $annee_courante - 1) $annee_ext
 $vehicule_sel  = null;
 $pointage_sel  = null;
 $km_plancher   = 0;
+$km_plafond    = 0;   // 0 = pas de plafond (aucun mois suivant renseigné)
 $pointages_map = [];
 
 if ($id_veh_sel > 0) {
@@ -106,6 +113,18 @@ if ($id_veh_sel > 0) {
             $km_plancher = ($row_kp['km_max'] !== null)
                 ? (int)$row_kp['km_max']
                 : max(0, (int)$vehicule_sel['kilometrage']);
+
+            // Plafond = plus petit pointage des mois SUIVANTS (cohérence lors d'une modification)
+            $stmt_pf = $conn->prepare("
+                SELECT MIN(kilometrage_reel) AS km_min
+                FROM pointages_kilometrage
+                WHERE id_vehicule = ? AND (annee > ? OR (annee = ? AND mois > ?))
+            ");
+            $stmt_pf->bind_param("iiii", $id_veh_sel, $annee_sel, $annee_sel, $mois_sel);
+            $stmt_pf->execute();
+            $row_pf = $stmt_pf->get_result()->fetch_assoc();
+            $stmt_pf->close();
+            $km_plafond = ($row_pf['km_min'] !== null) ? (int)$row_pf['km_min'] : 0;
         }
     }
 }
@@ -140,29 +159,38 @@ if ($is_post) {
     if ($ok && $annee_sel === $annee_courante && $mois_sel > $mois_courant) {
         $erreur = "Impossible de saisir un pointage pour une période future."; $ok = false;
     }
-    if ($ok && $pointage_sel) {
-        $erreur = "Un pointage existe déjà pour ce mois. Les pointages ne peuvent pas être modifiés."; $ok = false;
-    }
+    // Modification autorisée (accès réservé aux managers Terracoop) : plus de verrouillage.
     if ($ok) {
         if ($km_val_post === false || $km_val_post === null || $km_val_post <= 0) {
             $erreur = "Veuillez saisir un kilométrage valide (nombre entier positif)."; $ok = false;
         } elseif ($km_val_post < $km_plancher) {
-            $erreur = "Le kilométrage saisi (" . number_format($km_val_post, 0, ',', ' ') . " km) est inférieur au dernier pointage enregistré (" . number_format($km_plancher, 0, ',', ' ') . " km)."; $ok = false;
+            $erreur = "Le kilométrage saisi (" . number_format($km_val_post, 0, ',', ' ') . " km) est inférieur au pointage du mois précédent (" . number_format($km_plancher, 0, ',', ' ') . " km)."; $ok = false;
+        } elseif ($km_plafond > 0 && $km_val_post > $km_plafond) {
+            $erreur = "Le kilométrage saisi (" . number_format($km_val_post, 0, ',', ' ') . " km) est supérieur au pointage d'un mois suivant (" . number_format($km_plafond, 0, ',', ' ') . " km)."; $ok = false;
         }
     }
 
     if ($ok) {
-        $stmt_ins = $conn->prepare("INSERT INTO pointages_kilometrage (id_vehicule, id_employe, kilometrage_reel, date_pointage, mois, annee) VALUES (?, ?, ?, CURDATE(), ?, ?)");
-        $stmt_ins->bind_param("iiiii", $id_veh_sel, $uid, $km_val_post, $mois_sel, $annee_sel);
-        $stmt_ins->execute();
-        $stmt_ins->close();
+        if ($pointage_sel) {
+            $stmt_up = $conn->prepare("UPDATE pointages_kilometrage SET kilometrage_reel = ?, id_employe = ?, date_pointage = CURDATE() WHERE id_vehicule = ? AND mois = ? AND annee = ?");
+            $stmt_up->bind_param("iiiii", $km_val_post, $uid, $id_veh_sel, $mois_sel, $annee_sel);
+            $stmt_up->execute();
+            $stmt_up->close();
+            $msg_ok = "Pointage de " . $mois_fr[$mois_sel] . " " . $annee_sel . " modifié avec succès.";
+        } else {
+            $stmt_ins = $conn->prepare("INSERT INTO pointages_kilometrage (id_vehicule, id_employe, kilometrage_reel, date_pointage, mois, annee) VALUES (?, ?, ?, CURDATE(), ?, ?)");
+            $stmt_ins->bind_param("iiiii", $id_veh_sel, $uid, $km_val_post, $mois_sel, $annee_sel);
+            $stmt_ins->execute();
+            $stmt_ins->close();
+            $msg_ok = "Pointage de " . $mois_fr[$mois_sel] . " " . $annee_sel . " enregistré avec succès.";
+        }
 
-        $stmt_vu = $conn->prepare("UPDATE vehicules SET kilometrage = ? WHERE id_vehicule = ? AND kilometrage <= ?");
-        $stmt_vu->bind_param("iii", $km_val_post, $id_veh_sel, $km_val_post);
+        // Recalcule le compteur du véhicule = plus grand pointage enregistré
+        $stmt_vu = $conn->prepare("UPDATE vehicules SET kilometrage = (SELECT MAX(kilometrage_reel) FROM pointages_kilometrage WHERE id_vehicule = ?) WHERE id_vehicule = ?");
+        $stmt_vu->bind_param("ii", $id_veh_sel, $id_veh_sel);
         $stmt_vu->execute();
         $stmt_vu->close();
 
-        $msg_ok = "Pointage de " . $mois_fr[$mois_sel] . " " . $annee_sel . " enregistré avec succès.";
         header('Location: manager_kilometrage.php?id_vehicule=' . $id_veh_sel . '&mois=' . $mois_sel . '&annee=' . $annee_sel . '&message=' . urlencode($msg_ok) . '&type=success');
         exit();
     }
@@ -306,12 +334,94 @@ include 'includes/header.php';
             <?php endif; ?>
         </div>
     </div>
+
+    <!-- ── Bloc Révision / CT ── -->
+    <?php
+    $today_maint    = date('Y-m-d');
+    $today_maint_ts = mktime(0, 0, 0, (int)date('n'), (int)date('j'), (int)date('Y'));
+    $km_act         = (int)$vehicule_sel['kilometrage'];
+
+    // Révision générale
+    if ($vehicule_sel['km_prochaine_revision'] !== null) {
+        $km_rev   = (int)$vehicule_sel['km_prochaine_revision'];
+        $km_seuil = (int)($vehicule_sel['km_seuil_alerte_revision'] ?? 500);
+        if ($km_act >= $km_rev) {
+            $rev_bg = '#f8d7da'; $rev_border = '#f5c6cb'; $rev_color = '#721c24';
+            $rev_titre = '🔴 Révision dépassée';
+            $rev_sous  = 'Prévue à ' . number_format($km_rev, 0, ',', ' ') . ' km · actuel : ' . number_format($km_act, 0, ',', ' ') . ' km';
+        } elseif ($km_act >= $km_rev - $km_seuil) {
+            $rev_bg = '#fff3cd'; $rev_border = '#ffeeba'; $rev_color = '#856404';
+            $reste = $km_rev - $km_act;
+            $rev_titre = '⚠️ Révision à prévoir';
+            $rev_sous  = 'Seuil : ' . number_format($km_rev, 0, ',', ' ') . ' km · dans ' . number_format($reste, 0, ',', ' ') . ' km';
+        } else {
+            $rev_bg = '#d4edda'; $rev_border = '#c3e6cb'; $rev_color = '#155724';
+            $reste = $km_rev - $km_act;
+            $rev_titre = '✅ Révision OK';
+            $rev_sous  = 'Seuil : ' . number_format($km_rev, 0, ',', ' ') . ' km · dans ' . number_format($reste, 0, ',', ' ') . ' km';
+        }
+        $rev_configured = true;
+    } else {
+        $rev_configured = false;
+        $rev_bg = '#f8f9fa'; $rev_border = '#dee2e6'; $rev_color = '#adb5bd';
+        $rev_titre = '— Révision';
+        $rev_sous  = 'Non configuré';
+    }
+
+    // Contrôle technique
+    if ($vehicule_sel['date_prochain_ct'] !== null) {
+        $ct_ts  = mktime(0, 0, 0,
+            (int)substr($vehicule_sel['date_prochain_ct'], 5, 2),
+            (int)substr($vehicule_sel['date_prochain_ct'], 8, 2),
+            (int)substr($vehicule_sel['date_prochain_ct'], 0, 4)
+        );
+        $ct_fr   = date('d/m/Y', $ct_ts);
+        $nb_j_ct = (int)($vehicule_sel['nb_jours_alerte_ct'] ?? 30);
+        $j_rest  = (int)(($ct_ts - $today_maint_ts) / 86400);
+        if ($vehicule_sel['date_prochain_ct'] <= $today_maint) {
+            $ct_bg = '#f8d7da'; $ct_border = '#f5c6cb'; $ct_color = '#721c24';
+            $ct_titre = '🔴 CT dépassé';
+            $ct_sous  = 'Était prévu le ' . $ct_fr;
+        } elseif ($j_rest <= $nb_j_ct) {
+            $ct_bg = '#fff3cd'; $ct_border = '#ffeeba'; $ct_color = '#856404';
+            $ct_titre = '⚠️ CT le ' . $ct_fr;
+            $ct_sous  = 'Dans ' . $j_rest . ' jour' . ($j_rest > 1 ? 's' : '');
+        } else {
+            $ct_bg = '#d4edda'; $ct_border = '#c3e6cb'; $ct_color = '#155724';
+            $ct_titre = '✅ CT le ' . $ct_fr;
+            $ct_sous  = 'Dans ' . $j_rest . ' jour' . ($j_rest > 1 ? 's' : '');
+        }
+        $ct_configured = true;
+    } else {
+        $ct_configured = false;
+        $ct_bg = '#f8f9fa'; $ct_border = '#dee2e6'; $ct_color = '#adb5bd';
+        $ct_titre = '— Contrôle technique';
+        $ct_sous  = 'Non configuré';
+    }
+    ?>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;width:100%;margin-top:14px;padding-top:14px;border-top:1px solid #e9ecef;">
+        <div style="flex:1;min-width:200px;background:<?php echo $rev_bg; ?>;border:1px solid <?php echo $rev_border; ?>;border-radius:8px;padding:10px 14px;">
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:<?php echo $rev_color; ?>;margin-bottom:5px;">🔧 Révision générale</div>
+            <div style="font-size:0.88rem;font-weight:700;color:<?php echo $rev_color; ?>;"><?php echo $rev_titre; ?></div>
+            <div style="font-size:0.75rem;color:<?php echo $rev_color; ?>;margin-top:3px;opacity:.9;"><?php echo $rev_sous; ?></div>
+        </div>
+        <div style="flex:1;min-width:200px;background:<?php echo $ct_bg; ?>;border:1px solid <?php echo $ct_border; ?>;border-radius:8px;padding:10px 14px;">
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:<?php echo $ct_color; ?>;margin-bottom:5px;">🔍 Contrôle technique</div>
+            <div style="font-size:0.88rem;font-weight:700;color:<?php echo $ct_color; ?>;"><?php echo $ct_titre; ?></div>
+            <div style="font-size:0.75rem;color:<?php echo $ct_color; ?>;margin-top:3px;opacity:.9;"><?php echo $ct_sous; ?></div>
+        </div>
+        <?php if (!$rev_configured && !$ct_configured): ?>
+        <div style="width:100%;font-size:0.75rem;color:#adb5bd;margin-top:4px;">
+            Paramétrable depuis <a href="parc.php?tab=vehicules" style="color:#6c757d;">Parc → bouton ⚙️ Révision</a>.
+        </div>
+        <?php endif; ?>
+    </div>
 </div>
 
 <!-- ── Légende ── -->
 <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;font-size:0.78rem;color:#555;">
     <span style="display:flex;align-items:center;gap:5px;">
-        <span style="display:inline-block;width:12px;height:12px;background:#d4edda;border:1px solid #c3e6cb;border-radius:3px;"></span> Renseigné
+        <span style="display:inline-block;width:12px;height:12px;background:#d4edda;border:1px solid #c3e6cb;border-radius:3px;"></span> Renseigné — cliquer pour modifier
     </span>
     <span style="display:flex;align-items:center;gap:5px;">
         <span style="display:inline-block;width:12px;height:12px;background:#f8d7da;border:1px solid #f5c6cb;border-radius:3px;"></span> Manquant — cliquer pour saisir
@@ -377,8 +487,9 @@ foreach ($annees_affichage as $y):
             </div>
 
         <?php elseif ($entry): ?>
-            <div class="km-cell-entered"
-                 style="background:<?php echo $is_selected ? '#b8dfc4' : '#d4edda'; ?>;
+            <a href="<?php echo $cell_url; ?>" class="km-cell-entered"
+                 style="display:block;text-decoration:none;
+                        background:<?php echo $is_selected ? '#b8dfc4' : '#d4edda'; ?>;
                         border:<?php echo $is_current ? '2px solid var(--primary)' : ($is_selected ? '2px solid #155724' : '1px solid #c3e6cb'); ?>;
                         border-radius:8px;padding:9px 10px;min-height:70px;">
                 <div style="font-size:0.76rem;font-weight:600;color:#155724;margin-bottom:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
@@ -390,7 +501,8 @@ foreach ($annees_affichage as $y):
                 <div style="font-size:0.82rem;font-weight:700;color:#155724;"><?php echo number_format((int)$entry['kilometrage_reel'], 0, ',', ' '); ?> km</div>
                 <div style="font-size:0.65rem;color:#28a745;margin-top:3px;"><?php echo date('d/m/Y', strtotime($entry['date_pointage'])); ?></div>
                 <div style="font-size:0.6rem;color:#6c757d;margin-top:1px;"><?php echo htmlspecialchars($entry['prenom'] . ' ' . $entry['nom']); ?></div>
-            </div>
+                <div style="font-size:0.62rem;font-weight:600;margin-top:4px;color:<?php echo $is_selected ? '#0d6efd' : '#198754'; ?>;"><?php echo $is_selected ? '▼ Modifier' : '✎ Modifier'; ?></div>
+            </a>
 
         <?php else: ?>
             <a href="<?php echo $cell_url; ?>" class="km-cell-missing"
@@ -446,59 +558,51 @@ foreach ($annees_affichage as $y):
 <?php if ($mois_sel > 0 && $annee_sel > 0): ?>
 
 <div id="form-saisie" class="form-section"
-     style="margin-top:8px;border:2px solid <?php echo $pointage_sel ? '#c3e6cb' : '#0d6efd'; ?>;">
+     style="margin-top:8px;border:2px solid <?php echo $pointage_sel ? '#198754' : '#0d6efd'; ?>;">
 
-    <h3 style="margin-top:0;margin-bottom:14px;font-size:1rem;color:<?php echo $pointage_sel ? '#155724' : '#0d6efd'; ?>;">
-        <?php echo $pointage_sel ? '✓' : '✎'; ?>
+    <h3 style="margin-top:0;margin-bottom:14px;font-size:1rem;color:<?php echo $pointage_sel ? '#198754' : '#0d6efd'; ?>;">
+        ✎ <?php echo $pointage_sel ? 'Modifier' : 'Saisir'; ?> —
         <?php echo $mois_fr[$mois_sel] . ' ' . $annee_sel; ?>
         — <?php echo htmlspecialchars($vehicule_sel['marque'] . ' ' . $vehicule_sel['modele']); ?>
     </h3>
 
     <?php if ($pointage_sel): ?>
-        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;">
-            <svg viewBox="0 0 24 24" fill="#155724" width="24" height="24" style="flex-shrink:0;">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-            </svg>
-            <div>
-                <strong style="color:#155724;">Déjà enregistré : <?php echo number_format((int)$pointage_sel['kilometrage_reel'], 0, ',', ' '); ?> km</strong>
-                <div style="color:#28693a;font-size:0.82rem;margin-top:2px;">
-                    Saisi le <?php echo date('d/m/Y', strtotime($pointage_sel['date_pointage'])); ?>
-                    — Ce pointage est verrouillé et ne peut plus être modifié.
-                </div>
-            </div>
-        </div>
-    <?php else: ?>
-        <form method="POST" action="manager_kilometrage.php" id="km-form">
-            <input type="hidden" name="csrf_token"       value="<?php echo $_SESSION['csrf_token']; ?>">
-            <input type="hidden" name="submit_km_manager" value="1">
-            <input type="hidden" name="id_vehicule"      value="<?php echo $id_veh_sel; ?>">
-            <input type="hidden" name="mois"             value="<?php echo $mois_sel; ?>">
-            <input type="hidden" name="annee"            value="<?php echo $annee_sel; ?>">
-
-            <label for="kilometrage_reel" style="font-size:0.875rem;">
-                Kilométrage réel pour <?php echo $mois_fr[$mois_sel] . ' ' . $annee_sel; ?> (km)
-            </label>
-            <input type="number" id="kilometrage_reel" name="kilometrage_reel"
-                min="<?php echo $km_plancher; ?>" step="1" required
-                style="max-width:260px;"
-                value="<?php echo ($km_val_post !== null && $km_val_post !== false) ? (int)$km_val_post : ($km_plancher > 0 ? $km_plancher : ''); ?>"
-                placeholder="<?php echo $km_plancher > 0 ? number_format($km_plancher, 0, ',', ' ') . ' km min.' : 'Ex. : 12 000'; ?>">
-
-            <?php if ($km_plancher > 0): ?>
-                <p style="margin:5px 0 0;font-size:0.8rem;color:#6c757d;">
-                    Valeur minimale : <?php echo number_format($km_plancher, 0, ',', ' '); ?> km
-                </p>
-            <?php endif; ?>
-
-            <p style="margin:12px 0 0;font-size:0.855rem;color:#856404;background:#fff3cd;padding:10px 14px;border-radius:6px;border:1px solid #ffeeba;line-height:1.5;">
-                <strong>Attention :</strong> Cette saisie est <strong>définitive et irréversible</strong>. Une fois validée, elle ne pourra plus être modifiée ni supprimée.
-            </p>
-
-            <button type="button" onclick="demanderConfirmation()" style="max-width:260px;margin-top:16px;">
-                Enregistrer le pointage
-            </button>
-        </form>
+        <p style="margin:0 0 12px;font-size:0.83rem;color:#155724;background:#d4edda;border:1px solid #c3e6cb;border-radius:6px;padding:8px 12px;">
+            Pointage actuel : <strong><?php echo number_format((int)$pointage_sel['kilometrage_reel'], 0, ',', ' '); ?> km</strong>,
+            saisi le <?php echo date('d/m/Y', strtotime($pointage_sel['date_pointage'])); ?>
+            par <?php echo htmlspecialchars($pointage_sel['prenom'] . ' ' . $pointage_sel['nom']); ?>.
+        </p>
     <?php endif; ?>
+
+    <form method="POST" action="manager_kilometrage.php" id="km-form">
+        <input type="hidden" name="csrf_token"       value="<?php echo $_SESSION['csrf_token']; ?>">
+        <input type="hidden" name="submit_km_manager" value="1">
+        <input type="hidden" name="id_vehicule"      value="<?php echo $id_veh_sel; ?>">
+        <input type="hidden" name="mois"             value="<?php echo $mois_sel; ?>">
+        <input type="hidden" name="annee"            value="<?php echo $annee_sel; ?>">
+
+        <label for="kilometrage_reel" style="font-size:0.875rem;">
+            Kilométrage réel pour <?php echo $mois_fr[$mois_sel] . ' ' . $annee_sel; ?> (km)
+        </label>
+        <input type="number" id="kilometrage_reel" name="kilometrage_reel"
+            min="<?php echo $km_plancher; ?>" <?php if ($km_plafond > 0) echo 'max="' . $km_plafond . '"'; ?> step="1" required
+            style="max-width:260px;"
+            value="<?php echo ($km_val_post !== null && $km_val_post !== false) ? (int)$km_val_post : ($pointage_sel ? (int)$pointage_sel['kilometrage_reel'] : ($km_plancher > 0 ? $km_plancher : '')); ?>"
+            placeholder="<?php echo $km_plancher > 0 ? number_format($km_plancher, 0, ',', ' ') . ' km min.' : 'Ex. : 12 000'; ?>">
+
+        <p style="margin:5px 0 0;font-size:0.8rem;color:#6c757d;">
+            <?php if ($km_plancher > 0): ?>Minimum : <?php echo number_format($km_plancher, 0, ',', ' '); ?> km (mois précédent).<?php endif; ?>
+            <?php if ($km_plafond > 0): ?> Maximum : <?php echo number_format($km_plafond, 0, ',', ' '); ?> km (mois suivant).<?php endif; ?>
+        </p>
+
+        <p style="margin:12px 0 0;font-size:0.855rem;color:#856404;background:#fff3cd;padding:10px 14px;border-radius:6px;border:1px solid #ffeeba;line-height:1.5;">
+            <strong>Attention :</strong> ce pointage sert de base au suivi kilométrique. Vérifiez la valeur avant de valider ; elle restera cohérente avec les mois précédent et suivant.
+        </p>
+
+        <button type="button" onclick="demanderConfirmation()" style="max-width:260px;margin-top:16px;">
+            <?php echo $pointage_sel ? 'Modifier le pointage' : 'Enregistrer le pointage'; ?>
+        </button>
+    </form>
 </div>
 
 <?php elseif ($total_missing > 0): ?>
@@ -534,8 +638,8 @@ foreach ($annees_affichage as $y):
             <h3 style="margin:0;font-size:1rem;">Confirmation requise</h3>
         </div>
         <p style="margin:0 0 14px;color:#495057;font-size:0.875rem;line-height:1.55;">
-            Cette opération est <strong>définitive et irréversible</strong>.<br>
-            Une fois enregistré, ce pointage <strong>ne pourra plus être modifié</strong>.
+            Vérifiez le kilométrage avant de valider.<br>
+            Il servira de référence pour le suivi et devra rester cohérent avec les mois précédent et suivant.
         </p>
         <div style="background:#f8f9fa;border-radius:8px;padding:12px 15px;margin-bottom:20px;font-size:0.85rem;line-height:1.8;">
             <div><span style="color:#6c757d;display:inline-block;min-width:90px;">Véhicule :</span> <strong id="modal-vehicule">—</strong></div>

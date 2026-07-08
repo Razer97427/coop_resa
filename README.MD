@@ -3,7 +3,7 @@
 # 🚗 Gestion de Flotte Automobile
 ### TERRACOOP — Système Interne de Réservation & Suivi de Parc
 
-![Version](https://img.shields.io/badge/version-10.3.5-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-10.3.6-blue?style=for-the-badge)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-5.7%2B-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
 ![License](https://img.shields.io/badge/licence-interne-green?style=for-the-badge)
@@ -348,7 +348,7 @@ Statut : 🏁 Terminée
 | 🏢 **Organisation** | TERRACOOP — Coopérative agricole |
 | 💻 **Service** | Service Informatique |
 | 📧 **Contact** | service.informatique@terracoop.re |
-| 🗓️ **Version actuelle** | v10.3.5 (2026) |
+| 🗓️ **Version actuelle** | v10.3.6 (2026) |
 | 🌍 **Fuseau horaire** | Indian/Reunion — UTC+4 |
 
 ---

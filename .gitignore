@@ -17,3 +17,9 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
+
+# Secrets / config maître
+maitre_config.php
+
+# Données debug
+debug/

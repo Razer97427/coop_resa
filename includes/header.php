@@ -10,9 +10,27 @@ if ($is_manager && isset($conn)) {
     if ($r) $nb_attente = (int)$r->fetch_row()[0];
 }
 
+// Établissement de l'utilisateur connecté (affiché sous le rôle)
+$user_etab_nom = '';
+if (isset($conn, $_SESSION['user_id'])) {
+    $stmt_ue = $conn->prepare("SELECT et.nom FROM employes e LEFT JOIN etablissements et ON et.id_etablissement = e.id_etablissement WHERE e.id_employe = ?");
+    if ($stmt_ue) {
+        $stmt_ue->bind_param("i", $_SESSION['user_id']);
+        $stmt_ue->execute();
+        $ue = $stmt_ue->get_result()->fetch_assoc();
+        $stmt_ue->close();
+        $user_etab_nom = $ue['nom'] ?? '';
+    }
+}
+
 $manager_pages = ['manager.php', 'parc.php', 'employes.php', 'manager_kilometrage.php'];
 if (!$is_manager && in_array($current_page, $manager_pages)) {
     header('Location: index.php?message=' . urlencode('Accès réservé.') . '&type=error');
+    exit();
+}
+// Le suivi kilométrique global est réservé aux managers Terracoop ; les autres sociétés utilisent le pointage individuel.
+if ($current_page === 'manager_kilometrage.php' && empty($IS_TERRACOOP_MANAGER)) {
+    header('Location: pointage_kilometrage.php');
     exit();
 }
 
@@ -105,7 +123,7 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                     Accueil
                 </a>
 
-                <?php if ($has_vehicule_affecte && !$is_manager): ?>
+                <?php if ($has_vehicule_affecte && empty($IS_TERRACOOP_MANAGER)): ?>
                     <a href="pointage_kilometrage.php" class="nav-link <?php echo $current_page==='pointage_kilometrage.php' ? 'active' : ''; ?>">
                         Pointage Véhicule
                         <?php if ($nb_km_manquant > 0): ?>
@@ -127,12 +145,14 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                     <a href="employes.php" class="nav-link <?php echo $current_page==='employes.php' ? 'active' : ''; ?>">
                         Equipes
                     </a>
+                    <?php if ($IS_TERRACOOP_MANAGER): ?>
                     <a href="manager_kilometrage.php" class="nav-link <?php echo $current_page==='manager_kilometrage.php' ? 'active' : ''; ?>">
-                        Suivi Km
+                        Suivi Véhicules
                         <?php if ($has_vehicule_affecte && $nb_km_manquant > 0): ?>
                             <span class="nav-badge"><?php echo $nb_km_manquant; ?></span>
                         <?php endif; ?>
                     </a>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <!-- ── Partie droite ── -->
@@ -143,6 +163,9 @@ $doc_title = ($page_titles[$current_page] ?? 'Tableau de bord') . ' — TERRACOO
                         <div class="nav-user-info">
                             <span class="nav-user-name"><?php echo htmlspecialchars($_SESSION['user_name'] ?? ''); ?></span>
                             <span class="nav-user-role"><?php echo $is_manager ? 'Manager' : 'Employé'; ?></span>
+                            <?php if ($user_etab_nom): ?>
+                            <span class="nav-user-etab" style="font-size:.72em; color:#6c757d;"><?php echo htmlspecialchars($user_etab_nom); ?></span>
+                            <?php endif; ?>
                         </div>
                     </div>
 

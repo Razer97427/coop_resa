@@ -4,6 +4,36 @@ require __DIR__ . '/../config.php';
 date_default_timezone_set('Indian/Reunion');
 //define('ALERTE_TOKEN', 'terracoop97425!');
 
+// ── Activation des notifications email (repli si non défini dans le config racine) ──
+// Permet d'activer/couper l'envoi par module. Protégé pour ne jamais entrer en conflit
+// avec une définition déjà présente dans le config racine (config.php / maitre_config.php).
+if (!defined('EMAIL_ENABLED')) {
+    define('EMAIL_ENABLED', true);   // Interrupteur GÉNÉRAL : false coupe TOUS les emails
+}
+if (!isset($GLOBALS['EMAIL_MODULES'])) {
+    $GLOBALS['EMAIL_MODULES'] = [
+        'nouvelle_demande'  => true,  // index.php               -> notif aux managers (nouvelle demande)
+        'confirmation_resa' => true,  // manager.php             -> confirmation au demandeur
+        'refus_resa'        => true,  // manager.php             -> refus au demandeur
+        'superviseur'       => true,  // manager.php             -> info au superviseur du demandeur
+        'alerte_revision'   => true,  // api_alerte_revision.php -> alertes révision / CT
+        'alerte_km'         => true,  // alerte_kilometrage.php  -> rappel de pointage kilométrique
+        'reset_password'    => true,  // forgot.php              -> lien de réinitialisation
+        'change_email'      => true,  // update_password.php     -> vérification d'une nouvelle adresse email
+    ];
+}
+if (!function_exists('email_actif')) {
+    /**
+     * Indique si l'envoi d'email d'un module donné est actif.
+     * Renvoie true pour un module inconnu (on n'empêche pas un envoi non répertorié).
+     */
+    function email_actif($module) {
+        if (!EMAIL_ENABLED) return false;
+        $mods = $GLOBALS['EMAIL_MODULES'] ?? [];
+        return !array_key_exists($module, $mods) || $mods[$module] === true;
+    }
+}
+
 // ── En-têtes de sécurité HTTP ──────────────────────────────────────────────
 header_remove('X-Powered-By');
 header('X-Content-Type-Options: nosniff');
@@ -121,4 +151,21 @@ if (isset($_SESSION['user_id'], $_SESSION['session_token'])) {
         }
     }
 }
+
+// ── Rôle + établissement de l'utilisateur (contrôle d'accès par société) ────
+// Accès complet = manager Terracoop (établissement 1). Autres sociétés / NULL = accès restreint.
+$IS_MANAGER           = (($_SESSION['user_role'] ?? '') === 'Manager');
+$USER_ETAB_ID         = null;
+if (!empty($_SESSION['user_id'])) {
+    $st_etab = $conn->prepare("SELECT id_etablissement FROM employes WHERE id_employe = ?");
+    if ($st_etab) {
+        $st_etab->bind_param("i", $_SESSION['user_id']);
+        $st_etab->execute();
+        $row_etab = $st_etab->get_result()->fetch_assoc();
+        $st_etab->close();
+        if ($row_etab && $row_etab['id_etablissement'] !== null) $USER_ETAB_ID = (int)$row_etab['id_etablissement'];
+    }
+}
+$IS_TERRACOOP_MANAGER = ($IS_MANAGER && $USER_ETAB_ID === 1);
+$IS_SOCIETE_MANAGER   = ($IS_MANAGER && !$IS_TERRACOOP_MANAGER); // manager d'une autre société (ou sans établissement)
 ?>

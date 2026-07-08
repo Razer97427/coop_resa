@@ -2,7 +2,8 @@
 require_once 'config.php';
 if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit(); }
 
-if (($_SESSION['user_role'] ?? '') === 'Manager') {
+// Seul le manager Terracoop est redirigé vers le suivi global ; les managers des autres sociétés font le pointage individuel comme un employé.
+if (!empty($IS_TERRACOOP_MANAGER)) {
     header('Location: manager_kilometrage.php');
     exit();
 }

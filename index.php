@@ -16,6 +16,19 @@ if (isset($_POST['reservation_submit'])) {
     $date_debut  = ($_POST['date_debut']  ?? '') . ' ' . ($_POST['heure_debut'] ?? '00:00') . ':00';
     $date_fin    = ($_POST['date_fin']    ?? '') . ' ' . ($_POST['heure_fin']   ?? '00:00') . ':00';
 
+    // Bénéficiaire : par défaut soi-même. Un manager peut faire la demande pour un autre employé.
+    $is_mgr   = ($_SESSION['user_role'] ?? '') === 'Manager';
+    $id_benef = $uid;
+    if ($is_mgr && !empty($_POST['id_beneficiaire'])) {
+        $cand = (int)$_POST['id_beneficiaire'];
+        $chk_b = $conn->prepare("SELECT 1 FROM employes WHERE id_employe = ?");
+        $chk_b->bind_param("i", $cand);
+        $chk_b->execute();
+        $chk_b->store_result();
+        if ($chk_b->num_rows > 0) $id_benef = $cand;
+        $chk_b->close();
+    }
+
     if (strtotime($date_debut) >= strtotime($date_fin)) {
         header('Location: index.php?message=' . urlencode('❌ La date/heure de fin doit être après le début.') . '&type=error');
         exit();
@@ -24,14 +37,48 @@ if (isset($_POST['reservation_submit'])) {
         exit();
     } else {
         $stmt = $conn->prepare("INSERT INTO reservations (id_employe, id_vehicule, date_debut_resa, date_fin_resa, motif, destination, statut_resa, km_debut, date_demande) VALUES (?, NULL, ?, ?, ?, ?, 'En attente', 0, NOW())");
-        $stmt->bind_param("issss", $uid, $date_debut, $date_fin, $motif, $destination);
+        $stmt->bind_param("issss", $id_benef, $date_debut, $date_fin, $motif, $destination);
         if ($stmt->execute()) {
-            // ── Notifier tous les managers via PHPMailer + Mailjet ──
-            $managers = $conn->query("SELECT email, nom, prenom FROM employes WHERE role='Manager' AND actif=1 AND email IS NOT NULL AND email != ''");
+            // Établissement du bénéficiaire (NULL => Terracoop = 1 par défaut)
+            $etab_cible = 1;
+            $stmt_et = $conn->prepare("SELECT id_etablissement FROM employes WHERE id_employe = ?");
+            $stmt_et->bind_param("i", $id_benef);
+            $stmt_et->execute();
+            $et = $stmt_et->get_result()->fetch_assoc();
+            $stmt_et->close();
+            if ($et && $et['id_etablissement'] !== null) $etab_cible = (int)$et['id_etablissement'];
+
+            // ── Notifier uniquement les managers de l'établissement concerné ──
+            $managers = null;
+            if (email_actif('nouvelle_demande')) {
+                $sql_mgr = "SELECT email, nom, prenom FROM employes WHERE role='Manager' AND actif=1 AND email IS NOT NULL AND email != '' AND id_etablissement = ?";
+                $stmt_mgr = $conn->prepare($sql_mgr);
+                $stmt_mgr->bind_param("i", $etab_cible);
+                $stmt_mgr->execute();
+                $managers = $stmt_mgr->get_result();
+
+                // Repli : aucun manager dans l'établissement cible → notifier Terracoop (1)
+                if ($managers->num_rows === 0 && $etab_cible !== 1) {
+                    $etab_repli = 1;
+                    $stmt_fb = $conn->prepare($sql_mgr);
+                    $stmt_fb->bind_param("i", $etab_repli);
+                    $stmt_fb->execute();
+                    $managers = $stmt_fb->get_result();
+                }
+            }
             if ($managers && $managers->num_rows > 0) {
                 require_once __DIR__ . '/vendor/autoload.php';
 
-                $nom_demandeur = $_SESSION['user_name'] ?? 'Un employé';
+                if ($id_benef !== $uid) {
+                    $stmt_bn = $conn->prepare("SELECT CONCAT(prenom, ' ', nom) AS nom_complet FROM employes WHERE id_employe = ?");
+                    $stmt_bn->bind_param("i", $id_benef);
+                    $stmt_bn->execute();
+                    $bn = $stmt_bn->get_result()->fetch_assoc();
+                    $stmt_bn->close();
+                    $nom_demandeur = $bn['nom_complet'] ?? ($_SESSION['user_name'] ?? 'Un employé');
+                } else {
+                    $nom_demandeur = $_SESSION['user_name'] ?? 'Un employé';
+                }
                 $debut_fmt     = date('d/m/Y à H:i', strtotime($date_debut));
                 $fin_fmt       = date('d/m/Y à H:i', strtotime($date_fin));
                 $app_dir       = dirname($_SERVER['SCRIPT_NAME']);
@@ -153,6 +200,18 @@ $restitution_id = (int)($_GET['restitution_id'] ?? 0);
 // DONNÉES
 // ================================================================
 
+// Liste des employés (pour les managers : faire une demande au nom d'un autre)
+$employes_benef = [];
+if ($is_manager) {
+    $res_eb = $conn->query("SELECT id_employe, prenom, nom, matricule FROM employes ORDER BY nom, prenom");
+    if ($res_eb) {
+        while ($e = $res_eb->fetch_assoc()) {
+            $lbl = trim($e['prenom'] . ' ' . $e['nom']) . ($e['matricule'] ? ' (' . $e['matricule'] . ')' : '');
+            $employes_benef[] = ['id' => (int)$e['id_employe'], 'label' => $lbl];
+        }
+    }
+}
+
 // Véhicule attitré de l'employé
 $stmt_aff = $conn->prepare("
     SELECT v.marque, v.modele, v.immatriculation, v.type_carburant, v.kilometrage
@@ -255,6 +314,24 @@ $historique = $stmt_h->get_result();
     <form action="index.php" method="POST">
         <input type="hidden" name="reservation_submit" value="1">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+        <?php if ($is_manager): ?>
+        <label>Pour quel employé ? <small class="text-muted" style="font-weight:400;">(laisser vide = pour moi-même)</small></label>
+        <input type="text" list="liste_benef" id="benef_input" autocomplete="off"
+               placeholder="Tapez un nom… ou laissez vide pour vous"
+               oninput="resoudreBenef(this)">
+        <input type="hidden" name="id_beneficiaire" id="benef_id" value="">
+        <datalist id="liste_benef">
+            <?php foreach ($employes_benef as $eb): ?>
+                <option value="<?php echo htmlspecialchars($eb['label']); ?>"></option>
+            <?php endforeach; ?>
+        </datalist>
+        <script>
+        const BENEF = <?php echo json_encode(array_column($employes_benef, 'id', 'label'), JSON_UNESCAPED_UNICODE); ?>;
+        function resoudreBenef(input) {
+            document.getElementById('benef_id').value = BENEF[input.value] || '';
+        }
+        </script>
+        <?php endif; ?>
         <div class="time-group">
             <div>
                 <label>Date de départ</label>

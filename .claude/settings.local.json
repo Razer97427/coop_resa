@@ -13,7 +13,10 @@
       "Bash(grep -r \"PASS_ADMIN_TOTP\\\\|define.*PASS\\\\|PASS_ADMIN\" \"c:/PROJET WEB COOP/claude maj/gestion-auto/../\" --include=\"*.php\" -l 2>/dev/null | head -10)",
       "Read(//c/PROJET WEB COOP/claude maj//**)",
       "Bash(cd \"/c/PROJET WEB COOP/claude maj/gestion-auto\" && find . -type f -name \"*.json\" -o -name \"*.php\" -o -name \"*.js\" -o -name \"*.html\" | head -50)",
-      "Read(//c/c/PROJET WEB COOP/claude maj/**)"
+      "Read(//c/c/PROJET WEB COOP/claude maj/**)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(xargs grep -l \"CREATE TABLE.*vehicules\")"
     ]
   }
 }

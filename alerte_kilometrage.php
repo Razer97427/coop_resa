@@ -72,6 +72,11 @@ if ($total === 0) {
     exit(0);
 }
 
+if (!email_actif('alerte_km')) {
+    echo "Envoi d'email désactivé (module 'alerte_km') — aucun email envoyé.\n";
+    exit(0);
+}
+
 $app_url = 'https://terracoop.re/gestion-auto/login.php?redirect=pointage_kilometrage.php';
 
 foreach ($employes as $emp) {

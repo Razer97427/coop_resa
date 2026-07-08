@@ -138,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_email') {
                                . "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.\n\n"
                                . "— Service Informatique TERRACOOP";
 
-                $mail->send();
+                if (email_actif('change_email')) $mail->send();
             } catch (Exception $e) {
                 error_log("[EMAIL VERIF] Échec envoi vers " . $new_email . " — " . $mail->ErrorInfo);
             }
@@ -190,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'resend_email_verif') {
                            . $verify_link . "\n\n"
                            . "Ce lien est valable 1 heure.\n\n"
                            . "— Service Informatique TERRACOOP";
-            $mail->send();
+            if (email_actif('change_email')) $mail->send();
         } catch (Exception $e) {
             error_log("[EMAIL VERIF RESEND] Échec vers " . $rv['new_email'] . " — " . $mail->ErrorInfo);
         }

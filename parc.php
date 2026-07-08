@@ -10,6 +10,32 @@ if (($_SESSION['user_role'] ?? '') !== 'Manager') {
     exit();
 }
 
+// ── Restriction par établissement : Terracoop gère tout ; les autres sociétés uniquement leur parc ──
+$parc_all  = !empty($IS_TERRACOOP_MANAGER);
+$parc_etab = ($USER_ETAB_ID !== null) ? (int)$USER_ETAB_ID : 0;   // 0 = ne matche aucun établissement réel
+
+function parc_veh_autorise($conn, $id_veh, $etab) {
+    $s = $conn->prepare("SELECT 1 FROM vehicules WHERE id_vehicule = ? AND id_etablissement = ?");
+    $s->bind_param("ii", $id_veh, $etab); $s->execute(); $s->store_result();
+    $ok = $s->num_rows > 0; $s->close(); return $ok;
+}
+function parc_emp_autorise($conn, $id_emp, $etab) {
+    $s = $conn->prepare("SELECT 1 FROM employes WHERE id_employe = ? AND id_etablissement = ?");
+    $s->bind_param("ii", $id_emp, $etab); $s->execute(); $s->store_result();
+    $ok = $s->num_rows > 0; $s->close(); return $ok;
+}
+function parc_refus() {
+    header('Location: parc.php?message=' . urlencode("⛔ Action non autorisée : cet élément n'appartient pas à votre établissement.") . '&type=error');
+    exit();
+}
+
+// Fragments de filtrage SQL (vides pour Terracoop)
+$fVehW   = $parc_all ? "" : " WHERE v.id_etablissement = $parc_etab";
+$fEmpW   = $parc_all ? "" : " WHERE e.id_etablissement = $parc_etab";
+$fVehAnd = $parc_all ? "" : " AND v.id_etablissement = $parc_etab";
+$fEmpAnd = $parc_all ? "" : " AND e.id_etablissement = $parc_etab";
+$fNoAliasAnd = $parc_all ? "" : " AND id_etablissement = $parc_etab";
+
 // --- VÉHICULES ---
 if (isset($_POST['ajout_vehicule'])) {
     csrf_verify();
@@ -18,10 +44,38 @@ if (isset($_POST['ajout_vehicule'])) {
     $modele  = trim($_POST['modele']);
     $carbu   = $_POST['type_carburant'];
     $commun  = isset($_POST['est_communal']) ? 1 : 0;
-    $stmt = $conn->prepare("INSERT INTO vehicules (immatriculation, marque, modele, type_carburant, est_communal, actif, kilometrage) VALUES (?,?,?,?,?,1,0)");
-    $stmt->bind_param("ssssi", $immat, $marque, $modele, $carbu, $commun);
+    // Établissement : forcé au sien pour une société, choisi (ou NULL) pour Terracoop
+    if ($parc_all) {
+        $etab_veh = ($_POST['id_etablissement'] ?? '') !== '' ? (int)$_POST['id_etablissement'] : null;
+    } else {
+        $etab_veh = $parc_etab;
+    }
+    $stmt = $conn->prepare("INSERT INTO vehicules (immatriculation, marque, modele, type_carburant, est_communal, actif, kilometrage, id_etablissement) VALUES (?,?,?,?,?,1,0,?)");
+    $stmt->bind_param("ssssii", $immat, $marque, $modele, $carbu, $commun, $etab_veh);
     $ok = $stmt->execute();
     header('Location: parc.php?message=' . urlencode($ok ? '✅ Véhicule ajouté.' : '❌ Erreur (immatriculation déjà existante ?).') . '&type=' . ($ok ? 'success' : 'error'));
+    exit();
+}
+
+if (isset($_POST['modifier_vehicule'])) {
+    csrf_verify();
+    $id     = (int)$_POST['id_vehicule'];
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
+    $immat  = trim($_POST['immatriculation']);
+    $marque = trim($_POST['marque']);
+    $modele = trim($_POST['modele']);
+    $carbu  = $_POST['type_carburant'];
+    if ($parc_all) {
+        $etab_veh = ($_POST['id_etablissement'] ?? '') !== '' ? (int)$_POST['id_etablissement'] : null;
+        $stmt = $conn->prepare("UPDATE vehicules SET immatriculation=?, marque=?, modele=?, type_carburant=?, id_etablissement=? WHERE id_vehicule=?");
+        $stmt->bind_param("ssssii", $immat, $marque, $modele, $carbu, $etab_veh, $id);
+    } else {
+        $stmt = $conn->prepare("UPDATE vehicules SET immatriculation=?, marque=?, modele=?, type_carburant=? WHERE id_vehicule=?");
+        $stmt->bind_param("ssssi", $immat, $marque, $modele, $carbu, $id);
+    }
+    $ok = $stmt->execute();
+    $stmt->close();
+    header('Location: parc.php?message=' . urlencode($ok ? '✅ Véhicule modifié.' : '❌ Erreur (immatriculation déjà existante ?).') . '&type=' . ($ok ? 'success' : 'error') . '&tab=vehicules');
     exit();
 }
 
@@ -30,6 +84,7 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
         http_response_code(403); exit;
     }
     $id  = (int)$_GET['id'];
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
     $act = $_GET['veh_action'];
     if ($act === 'desactiver' || $act === 'reactiver') {
         $actif_v = ($act === 'reactiver') ? 1 : 0;
@@ -55,11 +110,36 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
     exit();
 }
 
+// --- RÉVISION / CT ---
+if (isset($_POST['modifier_revision_vehicule'])) {
+    csrf_verify();
+    $id       = (int)$_POST['id_vehicule'];
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
+    $km_rev   = ($_POST['km_prochaine_revision'] ?? '') !== '' ? (int)$_POST['km_prochaine_revision'] : null;
+    $km_seuil = ($_POST['km_seuil_alerte'] ?? '') !== '' ? (int)$_POST['km_seuil_alerte'] : 500;
+    $date_ct  = ($_POST['date_prochain_ct'] ?? '') !== '' ? $_POST['date_prochain_ct'] : null;
+    $jours_ct = ($_POST['nb_jours_alerte_ct'] ?? '') !== '' ? (int)$_POST['nb_jours_alerte_ct'] : 30;
+    $stmt = $conn->prepare("UPDATE vehicules SET km_prochaine_revision=?, km_seuil_alerte_revision=?, date_prochain_ct=?, nb_jours_alerte_ct=? WHERE id_vehicule=?");
+    $stmt->bind_param("iisii", $km_rev, $km_seuil, $date_ct, $jours_ct, $id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    header('Location: parc.php?message=' . urlencode($ok ? '✅ Paramètres de révision mis à jour.' : '❌ Erreur lors de la mise à jour.') . '&type=' . ($ok ? 'success' : 'error') . '&tab=vehicules');
+    exit();
+}
+
 // --- AFFECTATIONS ---
 if (isset($_POST['ajout_affectation'])) {
     csrf_verify();
     $id_emp = (int)$_POST['id_employe'];
     $id_veh = (int)$_POST['id_vehicule'];
+    // Société : uniquement ses employés, et un véhicule de son parc OU non encore rattaché (communal à réclamer)
+    if (!$parc_all) {
+        if (!parc_emp_autorise($conn, $id_emp, $parc_etab)) parc_refus();
+        $sv = $conn->prepare("SELECT id_etablissement FROM vehicules WHERE id_vehicule = ?");
+        $sv->bind_param("i", $id_veh); $sv->execute();
+        $vr = $sv->get_result()->fetch_assoc(); $sv->close();
+        if (!$vr || ($vr['id_etablissement'] !== null && (int)$vr['id_etablissement'] !== $parc_etab)) parc_refus();
+    }
     $chk_aff = $conn->prepare("SELECT COUNT(*) as n FROM affectations_fixes WHERE id_employe=? OR id_vehicule=?");
     $chk_aff->bind_param("ii", $id_emp, $id_veh);
     $chk_aff->execute();
@@ -72,8 +152,9 @@ if (isset($_POST['ajout_affectation'])) {
         $stmt->bind_param("ii", $id_emp, $id_veh);
         $stmt->execute();
         $stmt->close();
-        $su = $conn->prepare("UPDATE vehicules SET est_communal=0 WHERE id_vehicule=?");
-        $su->bind_param("i", $id_veh); $su->execute(); $su->close();
+        // Le véhicule devient attitré ET hérite AUTOMATIQUEMENT de l'établissement de l'employé
+        $su = $conn->prepare("UPDATE vehicules v JOIN employes e ON e.id_employe = ? SET v.est_communal = 0, v.id_etablissement = e.id_etablissement WHERE v.id_vehicule = ?");
+        $su->bind_param("ii", $id_emp, $id_veh); $su->execute(); $su->close();
         header('Location: parc.php?message=' . urlencode('✅ Affectation enregistrée.') . '&type=success&tab=affectations');
     }
     exit();
@@ -87,6 +168,7 @@ if (isset($_GET['aff_action']) && $_GET['aff_action'] === 'supprimer' && isset($
     $sa = $conn->prepare("SELECT id_vehicule FROM affectations_fixes WHERE id_affectation=?");
     $sa->bind_param("i", $id); $sa->execute();
     $row_aff = $sa->get_result()->fetch_assoc(); $sa->close();
+    if (!$parc_all && (!$row_aff || !parc_veh_autorise($conn, (int)$row_aff['id_vehicule'], $parc_etab))) parc_refus();
     if ($row_aff) {
         $sv = $conn->prepare("UPDATE vehicules SET est_communal=1 WHERE id_vehicule=?");
         $sv->bind_param("i", $row_aff['id_vehicule']); $sv->execute(); $sv->close();
@@ -108,15 +190,17 @@ $message_type = $_GET['type'] ?? 'success';
 $tab = $_GET['tab'] ?? 'vehicules';
 
 $vehicules = $conn->query("
-    SELECT v.*, af.id_affectation, e.nom, e.prenom, e.matricule
+    SELECT v.*, af.id_affectation, e.nom, e.prenom, e.matricule, et.nom AS etab_nom
     FROM vehicules v
     LEFT JOIN affectations_fixes af ON v.id_vehicule=af.id_vehicule
     LEFT JOIN employes e ON af.id_employe=e.id_employe
-    ORDER BY v.actif DESC, v.est_communal DESC, v.marque
+    LEFT JOIN etablissements et ON et.id_etablissement = v.id_etablissement
+    ORDER BY (v.id_etablissement IS NULL), v.id_etablissement, v.actif DESC, v.est_communal DESC, v.marque
 ");
 
-$emp_sans_veh   = $conn->query("SELECT id_employe, nom, prenom, matricule FROM employes WHERE actif=1 AND id_employe NOT IN (SELECT id_employe FROM affectations_fixes) ORDER BY nom");
-$veh_attitrable = $conn->query("SELECT id_vehicule, marque, modele, immatriculation FROM vehicules WHERE actif=1 AND id_vehicule NOT IN (SELECT id_vehicule FROM affectations_fixes) ORDER BY marque");
+$emp_sans_veh   = $conn->query("SELECT id_employe, nom, prenom, matricule FROM employes WHERE actif=1 AND id_employe NOT IN (SELECT id_employe FROM affectations_fixes)$fNoAliasAnd ORDER BY nom");
+$fVehAttri = $parc_all ? "" : " AND (id_etablissement = $parc_etab OR id_etablissement IS NULL)";
+$veh_attitrable = $conn->query("SELECT id_vehicule, marque, modele, immatriculation FROM vehicules WHERE actif=1 AND id_vehicule NOT IN (SELECT id_vehicule FROM affectations_fixes)$fVehAttri ORDER BY marque");
 
 $affectations = $conn->query("
     SELECT af.id_affectation, e.nom, e.prenom, e.matricule, e.id_employe,
@@ -124,6 +208,7 @@ $affectations = $conn->query("
     FROM affectations_fixes af
     JOIN employes e ON af.id_employe=e.id_employe
     JOIN vehicules v ON af.id_vehicule=v.id_vehicule
+    $fEmpW
     ORDER BY e.nom
 ");
 
@@ -133,9 +218,18 @@ $employes_aff = $conn->query("
     FROM employes e
     JOIN affectations_fixes af ON e.id_employe=af.id_employe
     JOIN vehicules v ON af.id_vehicule=v.id_vehicule
-    WHERE e.actif=1
+    WHERE e.actif=1$fEmpAnd
     ORDER BY e.nom
 ");
+
+// Liste des établissements (pour le filtre) + nom de l'établissement du manager
+$etablissements_liste = [];
+$mon_etab_nom = '';
+$re_etab = $conn->query("SELECT id_etablissement, nom FROM etablissements ORDER BY nom");
+if ($re_etab) while ($x = $re_etab->fetch_assoc()) {
+    $etablissements_liste[] = $x;
+    if ((int)$x['id_etablissement'] === $parc_etab) $mon_etab_nom = $x['nom'];
+}
 
 if ($message) echo '<div class="message '.$message_type.'">'.htmlspecialchars($message).'</div>';
 ?>
@@ -478,6 +572,161 @@ tr.no-result td {
 </style>
 
 <!-- ================================================================ -->
+<!-- MODAL RÉVISION / CT                                               -->
+<!-- ================================================================ -->
+<div id="modalRevision" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:28px;max-width:500px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.25);">
+        <h3 style="margin:0 0 4px;font-size:1.1em;">⚙️ Paramètres de maintenance</h3>
+        <p id="rev_veh_label" style="margin:0 0 20px;font-weight:600;color:#0d3b8c;font-size:.95em;"></p>
+        <form id="formRevision" action="parc.php" method="POST">
+            <input type="hidden" name="modifier_revision_vehicule" value="1">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+            <input type="hidden" name="id_vehicule" id="rev_id_vehicule" value="">
+
+            <fieldset style="border:1px solid #dee2e6;border-radius:6px;padding:14px 16px;margin-bottom:16px;">
+                <legend style="font-weight:600;font-size:.88em;color:#0d3b8c;padding:0 6px;">🔧 Révision générale (km)</legend>
+                <div class="time-group" style="margin-top:8px;">
+                    <div>
+                        <label>Prochain seuil km</label>
+                        <input type="number" name="km_prochaine_revision" id="rev_km_revision" min="0" step="500" placeholder="ex : 120000">
+                    </div>
+                    <div>
+                        <label>Alerter à (km avant)</label>
+                        <input type="number" name="km_seuil_alerte" id="rev_km_seuil" min="0" step="100" placeholder="500">
+                    </div>
+                </div>
+                <small style="color:#6c757d;display:block;margin-top:6px;">Laisser vide pour désactiver le suivi révision.</small>
+            </fieldset>
+
+            <fieldset style="border:1px solid #dee2e6;border-radius:6px;padding:14px 16px;margin-bottom:20px;">
+                <legend style="font-weight:600;font-size:.88em;color:#0d3b8c;padding:0 6px;">🔍 Contrôle technique (date)</legend>
+                <div class="time-group" style="margin-top:8px;">
+                    <div>
+                        <label>Date du prochain CT</label>
+                        <input type="date" name="date_prochain_ct" id="rev_date_ct">
+                    </div>
+                    <div>
+                        <label>Alerter (jours avant)</label>
+                        <input type="number" name="nb_jours_alerte_ct" id="rev_jours_ct" min="0" step="1" placeholder="30">
+                    </div>
+                </div>
+                <small style="color:#6c757d;display:block;margin-top:6px;">Laisser vide pour désactiver le suivi CT.</small>
+            </fieldset>
+
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button type="button" onclick="fermerModalRevision()" style="background:#6c757d;">Annuler</button>
+                <button type="submit">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function ouvrirModalRevision(btn) {
+    document.getElementById('rev_id_vehicule').value  = btn.dataset.id;
+    document.getElementById('rev_veh_label').textContent = btn.dataset.label;
+    document.getElementById('rev_km_revision').value  = btn.dataset.kmRev  || '';
+    document.getElementById('rev_km_seuil').value     = btn.dataset.kmSeuil || '500';
+    document.getElementById('rev_date_ct').value      = btn.dataset.dateCt  || '';
+    document.getElementById('rev_jours_ct').value     = btn.dataset.joursCt || '30';
+    const m = document.getElementById('modalRevision');
+    m.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+function fermerModalRevision() {
+    document.getElementById('modalRevision').style.display = 'none';
+    document.body.style.overflow = '';
+}
+document.getElementById('modalRevision').addEventListener('click', function(e) {
+    if (e.target === this) fermerModalRevision();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') fermerModalRevision();
+});
+</script>
+
+<!-- ================================================================ -->
+<!-- MODAL MODIFIER VÉHICULE                                           -->
+<!-- ================================================================ -->
+<div id="modalModifVeh" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:28px;max-width:480px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.25);">
+        <h3 style="margin:0 0 20px;font-size:1.1em;">✏️ Modifier le véhicule</h3>
+        <form id="formModifVeh" action="parc.php" method="POST">
+            <input type="hidden" name="modifier_vehicule" value="1">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+            <input type="hidden" name="id_vehicule" id="modif_id_vehicule" value="">
+
+            <div class="time-group">
+                <div>
+                    <label>Immatriculation</label>
+                    <input type="text" name="immatriculation" id="modif_immat" required placeholder="AA-123-BB">
+                </div>
+                <div>
+                    <label>Marque</label>
+                    <input type="text" name="marque" id="modif_marque" required placeholder="Renault">
+                </div>
+            </div>
+            <div class="time-group" style="margin-top:10px;">
+                <div>
+                    <label>Modèle</label>
+                    <input type="text" name="modele" id="modif_modele" required placeholder="Kangoo">
+                </div>
+                <div>
+                    <label>Carburant</label>
+                    <select name="type_carburant" id="modif_carbu">
+                        <option value="Diesel">Diesel</option>
+                        <option value="Essence">Essence</option>
+                        <option value="Électrique">Électrique</option>
+                        <option value="Hybride">Hybride</option>
+                        <option value="GPL">GPL</option>
+                    </select>
+                </div>
+            </div>
+
+            <?php if ($parc_all): ?>
+            <div style="margin-top:10px;">
+                <label>Établissement</label>
+                <select name="id_etablissement" id="modif_etab">
+                    <option value="">— Sans établissement —</option>
+                    <?php foreach ($etablissements_liste as $e): ?>
+                        <option value="<?php echo (int)$e['id_etablissement']; ?>"><?php echo htmlspecialchars($e['nom']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px;">
+                <button type="button" onclick="fermerModalModifVeh()" style="background:#6c757d;">Annuler</button>
+                <button type="submit">💾 Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function ouvrirModalModifVeh(btn) {
+    document.getElementById('modif_id_vehicule').value = btn.dataset.id;
+    document.getElementById('modif_immat').value       = btn.dataset.immat;
+    document.getElementById('modif_marque').value      = btn.dataset.marque;
+    document.getElementById('modif_modele').value      = btn.dataset.modele;
+    document.getElementById('modif_carbu').value       = btn.dataset.carbu;
+    const etabSel = document.getElementById('modif_etab');
+    if (etabSel) etabSel.value = btn.dataset.etab || '';
+    const m = document.getElementById('modalModifVeh');
+    m.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+function fermerModalModifVeh() {
+    document.getElementById('modalModifVeh').style.display = 'none';
+    document.body.style.overflow = '';
+}
+document.getElementById('modalModifVeh').addEventListener('click', function(e) {
+    if (e.target === this) fermerModalModifVeh();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') fermerModalModifVeh();
+});
+</script>
+
+<!-- ================================================================ -->
 <!-- ONGLET VÉHICULES                                                  -->
 <!-- ================================================================ -->
 <?php if ($tab === 'vehicules'): ?>
@@ -534,6 +783,13 @@ tr.no-result td {
         <option value="actif">Actifs</option>
         <option value="hors">Hors service</option>
     </select>
+    <select id="filtreEtabVeh" onchange="filtrerVehicules()">
+        <option value="">— Tous les établissements —</option>
+        <?php foreach ($etablissements_liste as $e): ?>
+            <option value="<?php echo htmlspecialchars($e['nom']); ?>" <?php echo (!$parc_all && $e['nom'] === $mon_etab_nom) ? 'selected' : ''; ?>><?php echo htmlspecialchars($e['nom']); ?></option>
+        <?php endforeach; ?>
+        <option value="(sans)">Sans établissement</option>
+    </select>
     <button class="btn-reset" onclick="resetVeh()">↺ Réinitialiser</button>
 </div>
 
@@ -559,13 +815,19 @@ tr.no-result td {
     <?php while ($row = $vehicules->fetch_assoc()):
         $type_str = $row['est_communal'] ? 'communal' : 'attitré';
         $etat_str = $row['actif'] ? 'actif' : 'hors';
+        // Terracoop gère tout ; une société ne gère que les véhicules de son établissement
+        $peut_gerer = $parc_all || ((int)($row['id_etablissement'] ?? 0) === $parc_etab);
     ?>
     <tr class="<?php echo $row['actif'] ? '' : 'archived'; ?>"
         data-search="<?php echo strtolower(htmlspecialchars($row['immatriculation'].' '.$row['marque'].' '.$row['modele'].' '.($row['nom']??'').' '.($row['prenom']??''))); ?>"
         data-type="<?php echo $type_str; ?>"
-        data-etat="<?php echo $etat_str; ?>">
+        data-etat="<?php echo $etat_str; ?>"
+        data-etab="<?php echo htmlspecialchars($row['etab_nom'] ?: '(sans)'); ?>">
         <td data-label="Immat."><strong><?php echo htmlspecialchars($row['immatriculation']); ?></strong></td>
-        <td data-label="Véhicule"><?php echo htmlspecialchars($row['marque'].' '.$row['modele']); ?></td>
+        <td data-label="Véhicule">
+            <?php echo htmlspecialchars($row['marque'].' '.$row['modele']); ?>
+            <br><small class="text-muted"><?php echo $row['etab_nom'] ? '🏢 '.htmlspecialchars($row['etab_nom']) : '<span style="color:#dc3545;">⚠ sans établissement</span>'; ?></small>
+        </td>
         <td data-label="Type">
             <?php if ($row['est_communal']): ?>
                 <span class="badge badge-communal">Communal</span>
@@ -585,7 +847,27 @@ tr.no-result td {
         </td>
         <td data-label="Actions">
             <?php $ct = urlencode($_SESSION['csrf_token']); ?>
-            <?php if ($row['actif']): ?>
+            <?php if (!$peut_gerer): ?>
+                <span class="text-muted" title="Véhicule d'un autre établissement">🔒 Autre établissement</span>
+            <?php elseif ($row['actif']): ?>
+                <button class="action-btn"
+                    onclick="ouvrirModalModifVeh(this)"
+                    data-id="<?php echo $row['id_vehicule']; ?>"
+                    data-immat="<?php echo htmlspecialchars($row['immatriculation']); ?>"
+                    data-marque="<?php echo htmlspecialchars($row['marque']); ?>"
+                    data-modele="<?php echo htmlspecialchars($row['modele']); ?>"
+                    data-carbu="<?php echo htmlspecialchars($row['type_carburant']); ?>"
+                    data-etab="<?php echo $row['id_etablissement'] !== null ? (int)$row['id_etablissement'] : ''; ?>"
+                    style="margin:2px;background:#0d6efd;color:#fff;border:none;cursor:pointer;">✏️ Modifier</button>
+                <button class="action-btn"
+                    onclick="ouvrirModalRevision(this)"
+                    data-id="<?php echo $row['id_vehicule']; ?>"
+                    data-label="<?php echo htmlspecialchars($row['immatriculation'] . ' — ' . $row['marque'] . ' ' . $row['modele']); ?>"
+                    data-km-rev="<?php echo $row['km_prochaine_revision'] ?? ''; ?>"
+                    data-km-seuil="<?php echo $row['km_seuil_alerte_revision'] ?? '500'; ?>"
+                    data-date-ct="<?php echo $row['date_prochain_ct'] ?? ''; ?>"
+                    data-jours-ct="<?php echo $row['nb_jours_alerte_ct'] ?? '30'; ?>"
+                    style="margin:2px;background:#6f42c1;color:#fff;border:none;cursor:pointer;">⚙️ Révision</button>
                 <a href="parc.php?veh_action=toggle&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn return-btn" onclick="return confirm('Changer le type communal/attitré ?')" style="margin:2px;">🔁 Type</a>
                 <a href="parc.php?veh_action=desactiver&id=<?php echo $row['id_vehicule']; ?>&tab=vehicules&csrf_token=<?php echo $ct; ?>" class="action-btn cancel-btn" onclick="return confirm('Désactiver ?')" style="margin:2px;">Désactiver</a>
             <?php else: ?>
@@ -610,16 +892,19 @@ function filtrerVehicules() {
     const kw   = document.getElementById('searchVeh').value.toLowerCase();
     const type = document.getElementById('filtreTypeVeh').value;
     const etat = document.getElementById('filtreEtatVeh').value;
+    const etab = document.getElementById('filtreEtabVeh').value;
 
     document.getElementById('clearSearchVeh').style.display = kw ? 'block' : 'none';
     document.getElementById('filtreTypeVeh').classList.toggle('active-filter', !!type);
     document.getElementById('filtreEtatVeh').classList.toggle('active-filter', !!etat);
+    document.getElementById('filtreEtabVeh').classList.toggle('active-filter', !!etab);
 
     const all = Array.from(document.querySelectorAll('#tableVeh tbody tr:not(.no-result)'));
     vehRows = all.filter(tr =>
         (!kw   || tr.dataset.search.includes(kw))
      && (!type || tr.dataset.type === type)
      && (!etat || tr.dataset.etat === etat)
+     && (!etab || tr.dataset.etab === etab)
     );
     all.forEach(tr => tr.style.display = 'none');
     vehPage = 1;
@@ -683,6 +968,7 @@ function resetVeh() {
     document.getElementById('searchVeh').value = '';
     document.getElementById('filtreTypeVeh').value = '';
     document.getElementById('filtreEtatVeh').value = '';
+    document.getElementById('filtreEtabVeh').value = '';
     filtrerVehicules();
 }
 
@@ -824,12 +1110,14 @@ document.getElementById('searchAff').addEventListener('keydown', e => { if (e.ke
 <?php
 $parc_vue = $conn->query("
     SELECT v.id_vehicule, v.marque, v.modele, v.immatriculation, v.est_communal, v.kilometrage,
-           e.nom, e.prenom, e.matricule,
+           v.km_prochaine_revision, v.km_seuil_alerte_revision, v.date_prochain_ct, v.nb_jours_alerte_ct,
+           e.nom, e.prenom, e.matricule, et.nom AS etab_nom,
            (SELECT c.date_debut FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) AS conge_debut,
            (SELECT c.date_fin   FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) AS conge_fin
     FROM vehicules v
     LEFT JOIN affectations_fixes af ON v.id_vehicule=af.id_vehicule
     LEFT JOIN employes e ON af.id_employe=e.id_employe
+    LEFT JOIN etablissements et ON et.id_etablissement = v.id_etablissement
     WHERE v.actif=1
     ORDER BY
         CASE
@@ -857,6 +1145,19 @@ $parc_vue = $conn->query("
         <option value="dispo">✅ Disponibles</option>
         <option value="indispo">🔴 Indisponibles</option>
     </select>
+    <select id="filtreMaintenanceVue" onchange="filtrerVue()">
+        <option value="">— Toutes maintenances —</option>
+        <option value="urgent">🔴 Urgentes</option>
+        <option value="alerte">⚠️ À prévoir</option>
+        <option value="ok">✅ OK</option>
+    </select>
+    <select id="filtreEtabVue" onchange="filtrerVue()">
+        <option value="">— Tous les établissements —</option>
+        <?php foreach ($etablissements_liste as $e): ?>
+            <option value="<?php echo htmlspecialchars($e['nom']); ?>" <?php echo (!$parc_all && $e['nom'] === $mon_etab_nom) ? 'selected' : ''; ?>><?php echo htmlspecialchars($e['nom']); ?></option>
+        <?php endforeach; ?>
+        <option value="(sans)">Sans établissement</option>
+    </select>
     <button class="btn-reset" onclick="resetVue()">↺ Réinitialiser</button>
 </div>
 
@@ -873,10 +1174,15 @@ $parc_vue = $conn->query("
             <th class="sortable" onclick="sortTable('tableVue',2)">Attitré à</th>
             <th>Disponibilité</th>
             <th class="sortable" onclick="sortTable('tableVue',4)">KM</th>
+            <th>🔧 Révision</th>
+            <th>🔍 CT</th>
         </tr>
     </thead>
     <tbody>
-    <?php while ($v = $parc_vue->fetch_assoc()):
+    <?php
+    $today_vue    = date('Y-m-d');
+    $today_vue_ts = mktime(0, 0, 0, (int)date('n'), (int)date('j'), (int)date('Y'));
+    while ($v = $parc_vue->fetch_assoc()):
         $a_proprio    = !empty($v['nom']);
         $a_conge      = !empty($v['conge_debut']);
         $en_conge_now = $a_conge && strtotime($v['conge_debut']) <= time() && strtotime($v['conge_fin']) >= time();
@@ -885,13 +1191,69 @@ $parc_vue = $conn->query("
         elseif ($en_conge_now)   $dispo_str = 'dispo';
         elseif ($a_conge)        $dispo_str = 'dispo';
         else                     $dispo_str = 'indispo';
+
+        // ── Calcul statut révision ──
+        $km_actuel = (int)$v['kilometrage'];
+        if ($v['km_prochaine_revision'] !== null) {
+            $km_rev   = (int)$v['km_prochaine_revision'];
+            $km_seuil = (int)($v['km_seuil_alerte_revision'] ?? 500);
+            if ($km_actuel >= $km_rev) {
+                $rev_badge    = '<span style="background:#f8d7da;color:#721c24;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">🔴 Dépassée</span><br><small style="color:#6c757d;">prévu à&nbsp;'.number_format($km_rev,0,',',' ').'&nbsp;km</small>';
+                $rev_data_str = 'urgent';
+            } elseif ($km_actuel >= $km_rev - $km_seuil) {
+                $reste        = $km_rev - $km_actuel;
+                $rev_badge    = '<span style="background:#fff3cd;color:#856404;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">⚠️ '.number_format($km_rev,0,',',' ').'&nbsp;km</span><br><small style="color:#6c757d;">dans&nbsp;'.number_format($reste,0,',',' ').'&nbsp;km</small>';
+                $rev_data_str = 'alerte';
+            } else {
+                $reste        = $km_rev - $km_actuel;
+                $rev_badge    = '<span style="background:#d4edda;color:#155724;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">✅ OK</span><br><small style="color:#6c757d;">dans&nbsp;'.number_format($reste,0,',',' ').'&nbsp;km</small>';
+                $rev_data_str = 'ok';
+            }
+        } else {
+            $rev_badge    = '<span style="color:#adb5bd;font-size:.85em;">—</span>';
+            $rev_data_str = '';
+        }
+
+        // ── Calcul statut CT ──
+        if ($v['date_prochain_ct'] !== null) {
+            $ct_ts   = mktime(0, 0, 0,
+                (int)substr($v['date_prochain_ct'], 5, 2),
+                (int)substr($v['date_prochain_ct'], 8, 2),
+                (int)substr($v['date_prochain_ct'], 0, 4)
+            );
+            $ct_fr        = date('d/m/Y', $ct_ts);
+            $jours_ct     = (int)($v['nb_jours_alerte_ct'] ?? 30);
+            $jours_restants = (int)(($ct_ts - $today_vue_ts) / 86400);
+            if ($v['date_prochain_ct'] <= $today_vue) {
+                $ct_badge    = '<span style="background:#f8d7da;color:#721c24;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">🔴 CT dépassé</span><br><small style="color:#6c757d;">'.$ct_fr.'</small>';
+                $ct_data_str = 'urgent';
+            } elseif ($jours_restants <= $jours_ct) {
+                $ct_badge    = '<span style="background:#fff3cd;color:#856404;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">⚠️ '.$ct_fr.'</span><br><small style="color:#6c757d;">dans&nbsp;'.$jours_restants.'&nbsp;j.</small>';
+                $ct_data_str = 'alerte';
+            } else {
+                $ct_badge    = '<span style="background:#d4edda;color:#155724;font-size:.78em;padding:2px 8px;border-radius:50px;white-space:nowrap;">✅ '.$ct_fr.'</span>';
+                $ct_data_str = 'ok';
+            }
+        } else {
+            $ct_badge    = '<span style="color:#adb5bd;font-size:.85em;">—</span>';
+            $ct_data_str = '';
+        }
+
+        // Statut maintenance global (le pire des deux)
+        $maint_levels = ['urgent' => 2, 'alerte' => 1, 'ok' => 0, '' => -1];
+        $rev_level = $maint_levels[$rev_data_str] ?? -1;
+        $ct_level  = $maint_levels[$ct_data_str]  ?? -1;
+        $maint_str = array_search(max($rev_level, $ct_level), $maint_levels) ?: '';
     ?>
     <tr data-search="<?php echo strtolower(htmlspecialchars($v['marque'].' '.$v['modele'].' '.$v['immatriculation'].' '.($v['nom']??'').' '.($v['prenom']??''))); ?>"
         data-type="<?php echo $type_str; ?>"
-        data-dispo="<?php echo $dispo_str; ?>">
+        data-dispo="<?php echo $dispo_str; ?>"
+        data-maintenance="<?php echo $maint_str; ?>"
+        data-etab="<?php echo htmlspecialchars($v['etab_nom'] ?: '(sans)'); ?>">
         <td data-label="Véhicule">
             <strong><?php echo htmlspecialchars($v['marque'].' '.$v['modele']); ?></strong><br>
-            <small class="text-muted"><?php echo htmlspecialchars($v['immatriculation']); ?></small>
+            <small class="text-muted"><?php echo htmlspecialchars($v['immatriculation']); ?></small><br>
+            <small class="text-muted"><?php echo $v['etab_nom'] ? '🏢 '.htmlspecialchars($v['etab_nom']) : '<span style="color:#dc3545;">⚠ sans établissement</span>'; ?></small>
         </td>
         <td data-label="Type">
             <?php if ($v['est_communal']): ?>
@@ -915,9 +1277,11 @@ $parc_vue = $conn->query("
             <?php endif; ?>
         </td>
         <td data-label="KM" data-km="<?php echo $v['kilometrage']; ?>"><?php echo number_format($v['kilometrage'],0,',',' '); ?> km</td>
+        <td data-label="Révision"><?php echo $rev_badge; ?></td>
+        <td data-label="CT"><?php echo $ct_badge; ?></td>
     </tr>
     <?php endwhile; ?>
-    <tr class="no-result" style="display:none;"><td colspan="5">Aucun véhicule ne correspond à cette recherche.</td></tr>
+    <tr class="no-result" style="display:none;"><td colspan="7">Aucun véhicule ne correspond à cette recherche.</td></tr>
     </tbody>
 </table>
 
@@ -929,19 +1293,25 @@ let vuePerPage = 10;
 let vueRows    = [];
 
 function filtrerVue() {
-    const kw    = document.getElementById('rechercheVue').value.toLowerCase();
-    const type  = document.getElementById('filtreTypeVue').value;
-    const dispo = document.getElementById('filtreDispoVue').value;
+    const kw         = document.getElementById('rechercheVue').value.toLowerCase();
+    const type       = document.getElementById('filtreTypeVue').value;
+    const dispo      = document.getElementById('filtreDispoVue').value;
+    const maintenance= document.getElementById('filtreMaintenanceVue').value;
+    const etab       = document.getElementById('filtreEtabVue').value;
 
     document.getElementById('clearSearchVue').style.display = kw ? 'block' : 'none';
     document.getElementById('filtreTypeVue').classList.toggle('active-filter', !!type);
     document.getElementById('filtreDispoVue').classList.toggle('active-filter', !!dispo);
+    document.getElementById('filtreMaintenanceVue').classList.toggle('active-filter', !!maintenance);
+    document.getElementById('filtreEtabVue').classList.toggle('active-filter', !!etab);
 
     const all = Array.from(document.querySelectorAll('#tableVue tbody tr:not(.no-result)'));
     vueRows = all.filter(tr =>
-        (!kw    || tr.dataset.search.includes(kw))
-     && (!type  || tr.dataset.type  === type)
-     && (!dispo || tr.dataset.dispo === dispo)
+        (!kw          || tr.dataset.search.includes(kw))
+     && (!type        || tr.dataset.type        === type)
+     && (!dispo       || tr.dataset.dispo       === dispo)
+     && (!maintenance || tr.dataset.maintenance === maintenance)
+     && (!etab        || tr.dataset.etab        === etab)
     );
     all.forEach(tr => tr.style.display = 'none');
     vuePage = 1;
@@ -1005,6 +1375,8 @@ function resetVue() {
     document.getElementById('rechercheVue').value = '';
     document.getElementById('filtreTypeVue').value = '';
     document.getElementById('filtreDispoVue').value = '';
+    document.getElementById('filtreMaintenanceVue').value = '';
+    document.getElementById('filtreEtabVue').value = '';
     filtrerVue();
 }
 

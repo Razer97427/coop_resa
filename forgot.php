@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                . "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.\n\n"
                                . "— Service Informatique TERRACOOP";
 
-                $mail->send();
+                if (email_actif('reset_password')) $mail->send();
             } catch (Exception $e) {
                 error_log("[RESET MDP] Échec envoi email vers " . $user['email'] . " — " . $mail->ErrorInfo);
             }
