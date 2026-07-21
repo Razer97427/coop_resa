@@ -39,14 +39,25 @@ if (isset($_POST['reservation_submit'])) {
         $stmt = $conn->prepare("INSERT INTO reservations (id_employe, id_vehicule, date_debut_resa, date_fin_resa, motif, destination, statut_resa, km_debut, date_demande) VALUES (?, NULL, ?, ?, ?, ?, 'En attente', 0, NOW())");
         $stmt->bind_param("issss", $id_benef, $date_debut, $date_fin, $motif, $destination);
         if ($stmt->execute()) {
-            // Établissement du bénéficiaire (NULL => Terracoop = 1 par défaut)
+            // Établissement responsable du bénéficiaire : gestionnaire délégué s'il existe (ex. RFL → Vivea),
+            // sinon son propre établissement, sinon Terracoop (1) par défaut.
             $etab_cible = 1;
-            $stmt_et = $conn->prepare("SELECT id_etablissement FROM employes WHERE id_employe = ?");
-            $stmt_et->bind_param("i", $id_benef);
-            $stmt_et->execute();
-            $et = $stmt_et->get_result()->fetch_assoc();
-            $stmt_et->close();
-            if ($et && $et['id_etablissement'] !== null) $etab_cible = (int)$et['id_etablissement'];
+            $stmt_et = $conn->prepare("
+                SELECT COALESCE(et.id_etablissement_gestion, e.id_etablissement) AS etab_resp
+                FROM employes e
+                LEFT JOIN etablissements et ON et.id_etablissement = e.id_etablissement
+                WHERE e.id_employe = ?
+            ");
+            if (!$stmt_et) { // colonne id_etablissement_gestion pas encore créée → repli établissement du bénéficiaire
+                $stmt_et = $conn->prepare("SELECT id_etablissement AS etab_resp FROM employes WHERE id_employe = ?");
+            }
+            if ($stmt_et) {
+                $stmt_et->bind_param("i", $id_benef);
+                $stmt_et->execute();
+                $et = $stmt_et->get_result()->fetch_assoc();
+                $stmt_et->close();
+                if ($et && $et['etab_resp'] !== null) $etab_cible = (int)$et['etab_resp'];
+            }
 
             // ── Notifier uniquement les managers de l'établissement concerné ──
             $managers = null;

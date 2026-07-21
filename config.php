@@ -3,6 +3,7 @@
 require __DIR__ . '/../config.php';
 date_default_timezone_set('Indian/Reunion');
 //define('ALERTE_TOKEN', 'terracoop97425!');
+define('BACKUP_ALERT_EMAIL', 'service.informatique@terracoop.re');
 
 // ── Activation des notifications email (repli si non défini dans le config racine) ──
 // Permet d'activer/couper l'envoi par module. Protégé pour ne jamais entrer en conflit
@@ -168,4 +169,20 @@ if (!empty($_SESSION['user_id'])) {
 }
 $IS_TERRACOOP_MANAGER = ($IS_MANAGER && $USER_ETAB_ID === 1);
 $IS_SOCIETE_MANAGER   = ($IS_MANAGER && !$IS_TERRACOOP_MANAGER); // manager d'une autre société (ou sans établissement)
+
+// ── Établissements gérés par ce manager (le sien + ceux délégués, ex. RFL → Vivea) ──
+// Défensif : si la colonne id_etablissement_gestion n'existe pas encore, on garde juste l'établissement propre.
+$USER_ETAB_GERES = ($USER_ETAB_ID !== null) ? [$USER_ETAB_ID] : [];
+if ($USER_ETAB_ID !== null) {
+    try {
+        if ($stg = $conn->prepare("SELECT id_etablissement FROM etablissements WHERE id_etablissement_gestion = ?")) {
+            $stg->bind_param("i", $USER_ETAB_ID);
+            if ($stg->execute()) {
+                $rg = $stg->get_result();
+                while ($row = $rg->fetch_assoc()) $USER_ETAB_GERES[] = (int)$row['id_etablissement'];
+            }
+            $stg->close();
+        }
+    } catch (\Throwable $e) { /* colonne pas encore créée */ }
+}
 ?>

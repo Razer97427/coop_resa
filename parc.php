@@ -10,31 +10,33 @@ if (($_SESSION['user_role'] ?? '') !== 'Manager') {
     exit();
 }
 
-// ── Restriction par établissement : Terracoop gère tout ; les autres sociétés uniquement leur parc ──
-$parc_all  = !empty($IS_TERRACOOP_MANAGER);
-$parc_etab = ($USER_ETAB_ID !== null) ? (int)$USER_ETAB_ID : 0;   // 0 = ne matche aucun établissement réel
+// ── Restriction par établissement : Terracoop gère tout ; une société gère le sien + les délégués (ex. RFL→Vivea) ──
+$parc_all   = !empty($IS_TERRACOOP_MANAGER);
+$parc_etab  = ($USER_ETAB_ID !== null) ? (int)$USER_ETAB_ID : 0;   // établissement propre (pour créer un véhicule)
+$parc_etabs = !empty($USER_ETAB_GERES) ? array_map('intval', $USER_ETAB_GERES) : ($parc_etab ? [$parc_etab] : []);
+$parc_in    = $parc_etabs ? implode(',', $parc_etabs) : '0';       // liste SQL (ints) ; 0 = ne matche rien
 
-function parc_veh_autorise($conn, $id_veh, $etab) {
-    $s = $conn->prepare("SELECT 1 FROM vehicules WHERE id_vehicule = ? AND id_etablissement = ?");
-    $s->bind_param("ii", $id_veh, $etab); $s->execute(); $s->store_result();
+function parc_veh_autorise($conn, $id_veh, $etabs_in) {
+    $s = $conn->prepare("SELECT 1 FROM vehicules WHERE id_vehicule = ? AND id_etablissement IN ($etabs_in)");
+    $s->bind_param("i", $id_veh); $s->execute(); $s->store_result();
     $ok = $s->num_rows > 0; $s->close(); return $ok;
 }
-function parc_emp_autorise($conn, $id_emp, $etab) {
-    $s = $conn->prepare("SELECT 1 FROM employes WHERE id_employe = ? AND id_etablissement = ?");
-    $s->bind_param("ii", $id_emp, $etab); $s->execute(); $s->store_result();
+function parc_emp_autorise($conn, $id_emp, $etabs_in) {
+    $s = $conn->prepare("SELECT 1 FROM employes WHERE id_employe = ? AND id_etablissement IN ($etabs_in)");
+    $s->bind_param("i", $id_emp); $s->execute(); $s->store_result();
     $ok = $s->num_rows > 0; $s->close(); return $ok;
 }
 function parc_refus() {
-    header('Location: parc.php?message=' . urlencode("⛔ Action non autorisée : cet élément n'appartient pas à votre établissement.") . '&type=error');
+    header('Location: parc.php?message=' . urlencode("⛔ Action non autorisée : cet élément n'appartient pas à votre périmètre.") . '&type=error');
     exit();
 }
 
 // Fragments de filtrage SQL (vides pour Terracoop)
-$fVehW   = $parc_all ? "" : " WHERE v.id_etablissement = $parc_etab";
-$fEmpW   = $parc_all ? "" : " WHERE e.id_etablissement = $parc_etab";
-$fVehAnd = $parc_all ? "" : " AND v.id_etablissement = $parc_etab";
-$fEmpAnd = $parc_all ? "" : " AND e.id_etablissement = $parc_etab";
-$fNoAliasAnd = $parc_all ? "" : " AND id_etablissement = $parc_etab";
+$fVehW   = $parc_all ? "" : " WHERE v.id_etablissement IN ($parc_in)";
+$fEmpW   = $parc_all ? "" : " WHERE e.id_etablissement IN ($parc_in)";
+$fVehAnd = $parc_all ? "" : " AND v.id_etablissement IN ($parc_in)";
+$fEmpAnd = $parc_all ? "" : " AND e.id_etablissement IN ($parc_in)";
+$fNoAliasAnd = $parc_all ? "" : " AND id_etablissement IN ($parc_in)";
 
 // --- VÉHICULES ---
 if (isset($_POST['ajout_vehicule'])) {
@@ -60,7 +62,7 @@ if (isset($_POST['ajout_vehicule'])) {
 if (isset($_POST['modifier_vehicule'])) {
     csrf_verify();
     $id     = (int)$_POST['id_vehicule'];
-    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_in)) parc_refus();
     $immat  = trim($_POST['immatriculation']);
     $marque = trim($_POST['marque']);
     $modele = trim($_POST['modele']);
@@ -84,7 +86,7 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
         http_response_code(403); exit;
     }
     $id  = (int)$_GET['id'];
-    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_in)) parc_refus();
     $act = $_GET['veh_action'];
     if ($act === 'desactiver' || $act === 'reactiver') {
         $actif_v = ($act === 'reactiver') ? 1 : 0;
@@ -114,7 +116,7 @@ if (isset($_GET['veh_action']) && isset($_GET['id'])) {
 if (isset($_POST['modifier_revision_vehicule'])) {
     csrf_verify();
     $id       = (int)$_POST['id_vehicule'];
-    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_etab)) parc_refus();
+    if (!$parc_all && !parc_veh_autorise($conn, $id, $parc_in)) parc_refus();
     $km_rev   = ($_POST['km_prochaine_revision'] ?? '') !== '' ? (int)$_POST['km_prochaine_revision'] : null;
     $km_seuil = ($_POST['km_seuil_alerte'] ?? '') !== '' ? (int)$_POST['km_seuil_alerte'] : 500;
     $date_ct  = ($_POST['date_prochain_ct'] ?? '') !== '' ? $_POST['date_prochain_ct'] : null;
@@ -134,11 +136,11 @@ if (isset($_POST['ajout_affectation'])) {
     $id_veh = (int)$_POST['id_vehicule'];
     // Société : uniquement ses employés, et un véhicule de son parc OU non encore rattaché (communal à réclamer)
     if (!$parc_all) {
-        if (!parc_emp_autorise($conn, $id_emp, $parc_etab)) parc_refus();
+        if (!parc_emp_autorise($conn, $id_emp, $parc_in)) parc_refus();
         $sv = $conn->prepare("SELECT id_etablissement FROM vehicules WHERE id_vehicule = ?");
         $sv->bind_param("i", $id_veh); $sv->execute();
         $vr = $sv->get_result()->fetch_assoc(); $sv->close();
-        if (!$vr || ($vr['id_etablissement'] !== null && (int)$vr['id_etablissement'] !== $parc_etab)) parc_refus();
+        if (!$vr || ($vr['id_etablissement'] !== null && !in_array((int)$vr['id_etablissement'], $parc_etabs, true))) parc_refus();
     }
     $chk_aff = $conn->prepare("SELECT COUNT(*) as n FROM affectations_fixes WHERE id_employe=? OR id_vehicule=?");
     $chk_aff->bind_param("ii", $id_emp, $id_veh);
@@ -152,8 +154,9 @@ if (isset($_POST['ajout_affectation'])) {
         $stmt->bind_param("ii", $id_emp, $id_veh);
         $stmt->execute();
         $stmt->close();
-        // Le véhicule devient attitré ET hérite AUTOMATIQUEMENT de l'établissement de l'employé
-        $su = $conn->prepare("UPDATE vehicules v JOIN employes e ON e.id_employe = ? SET v.est_communal = 0, v.id_etablissement = e.id_etablissement WHERE v.id_vehicule = ?");
+        // Le véhicule devient attitré ET hérite de l'établissement de l'employé,
+        // MAIS seulement si l'employé en a un — sinon on conserve celui du véhicule (pas d'écrasement par NULL).
+        $su = $conn->prepare("UPDATE vehicules v JOIN employes e ON e.id_employe = ? SET v.est_communal = 0, v.id_etablissement = COALESCE(e.id_etablissement, v.id_etablissement) WHERE v.id_vehicule = ?");
         $su->bind_param("ii", $id_emp, $id_veh); $su->execute(); $su->close();
         header('Location: parc.php?message=' . urlencode('✅ Affectation enregistrée.') . '&type=success&tab=affectations');
     }
@@ -168,9 +171,9 @@ if (isset($_GET['aff_action']) && $_GET['aff_action'] === 'supprimer' && isset($
     $sa = $conn->prepare("SELECT id_vehicule FROM affectations_fixes WHERE id_affectation=?");
     $sa->bind_param("i", $id); $sa->execute();
     $row_aff = $sa->get_result()->fetch_assoc(); $sa->close();
-    if (!$parc_all && (!$row_aff || !parc_veh_autorise($conn, (int)$row_aff['id_vehicule'], $parc_etab))) parc_refus();
+    if (!$parc_all && (!$row_aff || !parc_veh_autorise($conn, (int)$row_aff['id_vehicule'], $parc_in))) parc_refus();
     if ($row_aff) {
-        $sv = $conn->prepare("UPDATE vehicules SET est_communal=1 WHERE id_vehicule=?");
+        $sv = $conn->prepare("UPDATE vehicules SET est_communal=0 WHERE id_vehicule=?");
         $sv->bind_param("i", $row_aff['id_vehicule']); $sv->execute(); $sv->close();
     }
     $sd = $conn->prepare("DELETE FROM affectations_fixes WHERE id_affectation=?");
@@ -199,12 +202,14 @@ $vehicules = $conn->query("
 ");
 
 $emp_sans_veh   = $conn->query("SELECT id_employe, nom, prenom, matricule FROM employes WHERE actif=1 AND id_employe NOT IN (SELECT id_employe FROM affectations_fixes)$fNoAliasAnd ORDER BY nom");
-$fVehAttri = $parc_all ? "" : " AND (id_etablissement = $parc_etab OR id_etablissement IS NULL)";
+$fVehAttri = $parc_all ? "" : " AND (id_etablissement IN ($parc_in) OR id_etablissement IS NULL)";
 $veh_attitrable = $conn->query("SELECT id_vehicule, marque, modele, immatriculation FROM vehicules WHERE actif=1 AND id_vehicule NOT IN (SELECT id_vehicule FROM affectations_fixes)$fVehAttri ORDER BY marque");
 
 $affectations = $conn->query("
     SELECT af.id_affectation, e.nom, e.prenom, e.matricule, e.id_employe,
-           v.marque, v.modele, v.immatriculation
+           v.marque, v.modele, v.immatriculation,
+           (SELECT c.date_debut FROM conges c WHERE c.id_employe = e.id_employe AND DATEDIFF(c.date_fin, c.date_debut) >= 7 AND YEAR(c.date_debut) = YEAR(CURDATE()) AND MONTH(c.date_debut) = MONTH(CURDATE()) ORDER BY c.date_debut ASC LIMIT 1) AS conge_debut,
+           (SELECT c.date_fin   FROM conges c WHERE c.id_employe = e.id_employe AND DATEDIFF(c.date_fin, c.date_debut) >= 7 AND YEAR(c.date_debut) = YEAR(CURDATE()) AND MONTH(c.date_debut) = MONTH(CURDATE()) ORDER BY c.date_debut ASC LIMIT 1) AS conge_fin
     FROM affectations_fixes af
     JOIN employes e ON af.id_employe=e.id_employe
     JOIN vehicules v ON af.id_vehicule=v.id_vehicule
@@ -580,7 +585,7 @@ tr.no-result td {
         <p id="rev_veh_label" style="margin:0 0 20px;font-weight:600;color:#0d3b8c;font-size:.95em;"></p>
         <form id="formRevision" action="parc.php" method="POST">
             <input type="hidden" name="modifier_revision_vehicule" value="1">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="id_vehicule" id="rev_id_vehicule" value="">
 
             <fieldset style="border:1px solid #dee2e6;border-radius:6px;padding:14px 16px;margin-bottom:16px;">
@@ -816,7 +821,7 @@ document.addEventListener('keydown', function(e) {
         $type_str = $row['est_communal'] ? 'communal' : 'attitré';
         $etat_str = $row['actif'] ? 'actif' : 'hors';
         // Terracoop gère tout ; une société ne gère que les véhicules de son établissement
-        $peut_gerer = $parc_all || ((int)($row['id_etablissement'] ?? 0) === $parc_etab);
+        $peut_gerer = $parc_all || in_array((int)($row['id_etablissement'] ?? 0), $parc_etabs, true);
     ?>
     <tr class="<?php echo $row['actif'] ? '' : 'archived'; ?>"
         data-search="<?php echo strtolower(htmlspecialchars($row['immatriculation'].' '.$row['marque'].' '.$row['modele'].' '.($row['nom']??'').' '.($row['prenom']??''))); ?>"
@@ -838,7 +843,7 @@ document.addEventListener('keydown', function(e) {
         <td data-label="Affecté à">
             <?php echo !empty($row['nom']) ? htmlspecialchars($row['prenom'].' '.$row['nom']) : '<span class="text-muted">—</span>'; ?>
         </td>
-        <td data-label="Carburant"><small><?php echo htmlspecialchars($row['type_carburant']); ?></small></td>
+        <td data-label="Carburant"><small><?php echo htmlspecialchars($row['type_carburant'] ?? '', ENT_QUOTES, 'UTF-8'); ?></small></td>
         <td data-label="KM" data-km="<?php echo $row['kilometrage']; ?>"><?php echo number_format($row['kilometrage'],0,',',' '); ?> km</td>
         <td data-label="État">
             <span class="badge <?php echo $row['actif'] ? 'badge-active' : 'badge-inactive'; ?>">
@@ -856,7 +861,7 @@ document.addEventListener('keydown', function(e) {
                     data-immat="<?php echo htmlspecialchars($row['immatriculation']); ?>"
                     data-marque="<?php echo htmlspecialchars($row['marque']); ?>"
                     data-modele="<?php echo htmlspecialchars($row['modele']); ?>"
-                    data-carbu="<?php echo htmlspecialchars($row['type_carburant']); ?>"
+                    data-carbu="<?php echo htmlspecialchars($row['type_carburant'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                     data-etab="<?php echo $row['id_etablissement'] !== null ? (int)$row['id_etablissement'] : ''; ?>"
                     style="margin:2px;background:#0d6efd;color:#fff;border:none;cursor:pointer;">✏️ Modifier</button>
                 <button class="action-btn"
@@ -1062,9 +1067,18 @@ function filterSelect(selectId, kw) {
         </tr>
     </thead>
     <tbody>
-    <?php while ($row = $affectations->fetch_assoc()): ?>
-    <tr data-search="<?php echo strtolower(htmlspecialchars($row['nom'].' '.$row['prenom'].' '.$row['matricule'].' '.$row['immatriculation'])); ?>">
-        <td data-label="Employé"><strong><?php echo htmlspecialchars($row['prenom'].' '.$row['nom']); ?></strong></td>
+    <?php while ($row = $affectations->fetch_assoc()):
+        $aff_conge_long = !empty($row['conge_debut']); // la requête ne remonte que les congés longs de ce mois
+    ?>
+    <tr data-search="<?php echo strtolower(htmlspecialchars($row['nom'].' '.$row['prenom'].' '.$row['matricule'].' '.$row['immatriculation'])); ?>"
+        <?php if ($aff_conge_long): ?>style="background:#fff3cd;"<?php endif; ?>>
+        <td data-label="Employé">
+            <strong><?php echo htmlspecialchars($row['prenom'].' '.$row['nom']); ?></strong>
+            <?php if ($aff_conge_long): ?>
+                <br><span style="background:#856404;color:#fff;font-size:.7em;padding:2px 7px;border-radius:50px;font-weight:600;white-space:nowrap;">🏖️ Congé — véhicule à récupérer</span>
+                <br><small class="text-muted">du <?php echo date('d/m/Y', strtotime($row['conge_debut'])); ?> au <?php echo date('d/m/Y', strtotime($row['conge_fin'])); ?></small>
+            <?php endif; ?>
+        </td>
         <td data-label="Matricule"><small class="text-muted"><?php echo htmlspecialchars($row['matricule']); ?></small></td>
         <td data-label="Véhicule attitré">
             🔑 <?php echo htmlspecialchars($row['marque'].' '.$row['modele']); ?><br>
@@ -1080,20 +1094,66 @@ function filterSelect(selectId, kw) {
     <tr class="no-result" style="display:none;"><td colspan="4">Aucune affectation ne correspond à cette recherche.</td></tr>
     </tbody>
 </table>
+<div id="paginationAff"></div>
 
 <script>
+let affRows = [], affPage = 1, affPerPage = 10;
+
 function filtrerAff() {
     const kw = document.getElementById('searchAff').value.toLowerCase();
     document.getElementById('clearSearchAff').style.display = kw ? 'block' : 'none';
-    let nb = 0;
-    document.querySelectorAll('#tableAff tbody tr:not(.no-result)').forEach(tr => {
-        const ok = !kw || tr.dataset.search.includes(kw);
-        tr.style.display = ok ? '' : 'none';
-        if (ok) nb++;
-    });
-    document.getElementById('countAff').textContent = nb + ' affectation' + (nb > 1 ? 's' : '');
-    document.querySelector('#tableAff .no-result').style.display = nb === 0 ? '' : 'none';
+    const all = Array.from(document.querySelectorAll('#tableAff tbody tr:not(.no-result)'));
+    affRows = all.filter(tr => !kw || tr.dataset.search.includes(kw));
+    all.forEach(tr => tr.style.display = 'none');
+    affPage = 1;
+    afficherPageAff();
 }
+
+function afficherPageAff() {
+    const total      = affRows.length;
+    const totalPages = Math.max(1, Math.ceil(total / affPerPage));
+    affPage = Math.min(Math.max(1, affPage), totalPages);
+    const debut = (affPage - 1) * affPerPage;
+    const fin   = debut + affPerPage;
+    affRows.forEach((tr, i) => tr.style.display = (i >= debut && i < fin) ? '' : 'none');
+
+    document.getElementById('countAff').textContent = total + ' affectation' + (total > 1 ? 's' : '');
+    document.querySelector('#tableAff .no-result').style.display = total === 0 ? '' : 'none';
+    renderPaginationAff(total, totalPages);
+}
+
+function renderPaginationAff(total, totalPages) {
+    const el = document.getElementById('paginationAff');
+    if (total === 0) { el.innerHTML = ''; return; }
+    const debut = (affPage - 1) * affPerPage + 1;
+    const fin   = Math.min(affPage * affPerPage, total);
+    const opts  = [5, 10, 25].map(n => `<option value="${n}" ${affPerPage===n?'selected':''}>${n}</option>`).join('');
+    const s = (extra, label, click, disabled) =>
+        `<span class="pag-btn${extra}" style="cursor:${disabled?'default':'pointer'};opacity:${disabled?.35:1};" ${disabled?'':`onclick="${click}"`}>${label}</span>`;
+    let pages = '';
+    for (let p = 1; p <= totalPages; p++) {
+        if (p === 1 || p === totalPages || Math.abs(p - affPage) <= 1) {
+            pages += s(p === affPage ? ' pag-active' : '', p, `affPage=${p};afficherPageAff();`, false);
+        } else if (Math.abs(p - affPage) === 2) {
+            pages += '<span class="pag-dots">…</span>';
+        }
+    }
+    el.innerHTML = `
+    <div class="pagination-bar">
+        <div class="pag-per-page">
+            <span>Afficher</span>
+            <select onchange="affPerPage=parseInt(this.value);affPage=1;afficherPageAff();">${opts}</select>
+            <span>par page</span>
+        </div>
+        <span class="pag-info">${debut}–${fin} sur <strong>${total}</strong></span>
+        <div class="pag-buttons">
+            ${s(' pag-nav', '← Préc.', 'affPage--;afficherPageAff();', affPage <= 1)}
+            ${pages}
+            ${s(' pag-nav', 'Suiv. →', 'affPage++;afficherPageAff();', affPage >= totalPages)}
+        </div>
+    </div>`;
+}
+
 function resetAff() {
     document.getElementById('searchAff').value = '';
     filtrerAff();
@@ -1113,7 +1173,8 @@ $parc_vue = $conn->query("
            v.km_prochaine_revision, v.km_seuil_alerte_revision, v.date_prochain_ct, v.nb_jours_alerte_ct,
            e.nom, e.prenom, e.matricule, et.nom AS etab_nom,
            (SELECT c.date_debut FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) AS conge_debut,
-           (SELECT c.date_fin   FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) AS conge_fin
+           (SELECT c.date_fin   FROM conges c WHERE c.id_employe=e.id_employe AND c.date_fin >= CURDATE() ORDER BY c.date_debut ASC LIMIT 1) AS conge_fin,
+           (SELECT 1 FROM conges c WHERE c.id_employe=e.id_employe AND DATEDIFF(c.date_fin, c.date_debut) >= 7 AND YEAR(c.date_debut)=YEAR(CURDATE()) AND MONTH(c.date_debut)=MONTH(CURDATE()) LIMIT 1) AS conge_recup
     FROM vehicules v
     LEFT JOIN affectations_fixes af ON v.id_vehicule=af.id_vehicule
     LEFT JOIN employes e ON af.id_employe=e.id_employe
@@ -1186,6 +1247,8 @@ $parc_vue = $conn->query("
         $a_proprio    = !empty($v['nom']);
         $a_conge      = !empty($v['conge_debut']);
         $en_conge_now = $a_conge && strtotime($v['conge_debut']) <= time() && strtotime($v['conge_fin']) >= time();
+        // Véhicule attitré dont le propriétaire débute un congé long (>= 7 j) CE MOIS → à récupérer
+        $conge_long   = (!$v['est_communal'] && !empty($v['conge_recup']));
         $type_str     = $v['est_communal'] ? 'communal' : 'attitré';
         if ($v['est_communal'])  $dispo_str = 'dispo';
         elseif ($en_conge_now)   $dispo_str = 'dispo';
@@ -1249,7 +1312,8 @@ $parc_vue = $conn->query("
         data-type="<?php echo $type_str; ?>"
         data-dispo="<?php echo $dispo_str; ?>"
         data-maintenance="<?php echo $maint_str; ?>"
-        data-etab="<?php echo htmlspecialchars($v['etab_nom'] ?: '(sans)'); ?>">
+        data-etab="<?php echo htmlspecialchars($v['etab_nom'] ?: '(sans)'); ?>"
+        <?php if ($conge_long): ?>style="background:#fff3cd;"<?php endif; ?>>
         <td data-label="Véhicule">
             <strong><?php echo htmlspecialchars($v['marque'].' '.$v['modele']); ?></strong><br>
             <small class="text-muted"><?php echo htmlspecialchars($v['immatriculation']); ?></small><br>
@@ -1266,6 +1330,9 @@ $parc_vue = $conn->query("
             <?php echo $a_proprio ? htmlspecialchars($v['prenom'].' '.$v['nom']) : '<span class="text-muted">—</span>'; ?>
         </td>
         <td data-label="Disponibilité">
+            <?php if ($conge_long): ?>
+                <div style="margin-bottom:3px;"><span style="background:#856404;color:#fff;font-size:.72em;padding:2px 8px;border-radius:50px;font-weight:600;">🏖️ À récupérer (congé long)</span></div>
+            <?php endif; ?>
             <?php if ($v['est_communal']): ?>
                 <span style="color:#28a745;font-weight:500;">✅ Toujours disponible</span>
             <?php elseif ($en_conge_now): ?>
@@ -1426,6 +1493,8 @@ function sortTable(tableId, colIdx) {
     } else if (tableId === 'tableVue') {
         vueRows = rows.filter(tr => tr.style.display !== 'none');
         afficherPageVue();
+    } else if (tableId === 'tableAff') {
+        filtrerAff();  // re-collecte dans le nouvel ordre + repagine
     }
 }
 </script>

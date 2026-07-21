@@ -155,6 +155,77 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_assign'
     if ($log_file) jlog("Log enregistré : " . basename($log_file));
 }
 
+// 3a) RECHERCHE PAR MATRICULE (1ʳᵉ colonne du CSV) → prépare un tableau éditable
+$bulk_preview  = null;   // utilisateurs trouvés (pour le tableau)
+$bulk_notfound = [];     // matricules non trouvés
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_preview'])) {
+    csrf_verify();
+    if (empty($_FILES['csv_bulk']['tmp_name']) || !is_uploaded_file($_FILES['csv_bulk']['tmp_name'])) {
+        $flash = "⚠️ Aucun fichier CSV fourni.";
+    } else {
+        $lignes = file($_FILES['csv_bulk']['tmp_name'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $matricules = [];
+        foreach ($lignes as $ln) {
+            $c   = explode(';', $ln);
+            $mat = preg_replace('/^\xEF\xBB\xBF/', '', $c[0]);   // retire un éventuel BOM
+            $mat = trim($mat, " \t\"'\r\n");
+            if ($mat === '' || strtolower($mat) === 'matricule') continue;  // ignore vide / en-tête
+            $matricules[$mat] = true;
+        }
+        $matricules   = array_keys($matricules);
+        $bulk_preview = [];
+        if ($matricules) {
+            $ph    = implode(',', array_fill(0, count($matricules), '?'));
+            $types = str_repeat('s', count($matricules));
+            $stmt  = $conn->prepare("SELECT id_employe, matricule, nom, prenom, id_etablissement, id_service FROM employes WHERE matricule IN ($ph) ORDER BY nom, prenom");
+            $stmt->bind_param($types, ...$matricules);
+            $stmt->execute();
+            $res   = $stmt->get_result();
+            $found = [];
+            while ($r = $res->fetch_assoc()) { $bulk_preview[] = $r; $found[(string)$r['matricule']] = true; }
+            $stmt->close();
+            foreach ($matricules as $m) if (!isset($found[(string)$m])) $bulk_notfound[] = $m;
+        }
+        $flash = count($bulk_preview) . " utilisateur(s) trouvé(s) · " . count($bulk_notfound) . " matricule(s) introuvable(s).";
+    }
+}
+
+// 3b) APPLICATION DU TABLEAU → met à jour établissement/service par utilisateur
+if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_apply'])) {
+    csrf_verify();
+    $etabs    = $_POST['etab']    ?? [];   // [id_employe => id_etablissement]
+    $services = $_POST['service'] ?? [];   // [id_employe => id_service]
+    $ids      = array_unique(array_merge(array_keys($etabs), array_keys($services)));
+
+    $svc_etab_cache = [];
+    $stmt_se = $conn->prepare("SELECT id_etablissement FROM services WHERE id_service = ?");
+    $stmt_up = $conn->prepare("UPDATE employes SET id_etablissement = ?, id_service = ? WHERE id_employe = ?");
+    $maj = 0;
+    foreach ($ids as $emp) {
+        $emp = (int)$emp;
+        if ($emp <= 0) continue;
+        $sv = (isset($services[$emp]) && (int)$services[$emp] > 0) ? (int)$services[$emp] : null;
+        $et = (isset($etabs[$emp])    && (int)$etabs[$emp]    > 0) ? (int)$etabs[$emp]    : null;
+        // Cohérence : si un service est choisi, l'établissement = celui du service
+        if ($sv !== null) {
+            if (!array_key_exists($sv, $svc_etab_cache)) {
+                $stmt_se->bind_param("i", $sv); $stmt_se->execute();
+                $rr = $stmt_se->get_result()->fetch_assoc();
+                $svc_etab_cache[$sv] = ($rr && $rr['id_etablissement'] !== null) ? (int)$rr['id_etablissement'] : null;
+            }
+            if ($svc_etab_cache[$sv] !== null) $et = $svc_etab_cache[$sv];
+        }
+        $stmt_up->bind_param("iii", $et, $sv, $emp);
+        $stmt_up->execute();
+        if ($stmt_up->affected_rows > 0) $maj++;
+    }
+    $stmt_se->close(); $stmt_up->close();
+    jlog("✓ $maj utilisateur(s) mis à jour (établissement/service) via le tableau.");
+    $flash = "$maj utilisateur(s) mis à jour.";
+    $log_file = ecrire_log();
+    if ($log_file) jlog("Log enregistré : " . basename($log_file));
+}
+
 // ─────────────────────────── Données d'affichage ───────────────────────────
 $etablissements = [];
 $services_rows  = [];
@@ -301,6 +372,71 @@ $csrf = htmlspecialchars($_SESSION['csrf_token'] ?? '');
                 <button type="submit" class="green">Enregistrer les rattachements &amp; propager</button>
             </div>
         </form>
+        <?php endif; ?>
+    </div>
+
+    <!-- ─────────── Étape 3 : Import en masse par matricule ─────────── -->
+    <div class="card">
+        <h2 style="margin-top:0;font-size:1.05rem;">3. Modifier plusieurs utilisateurs par matricule</h2>
+        <p class="sub" style="margin-bottom:14px;">
+            Importez un CSV (séparateur <code>;</code>) : <strong>seule la 1ʳᵉ colonne (le matricule)</strong> est lue.
+            Les utilisateurs trouvés s'affichent dans un tableau où vous choisissez, <strong>pour chacun</strong>, son établissement et/ou son service.
+        </p>
+        <form method="POST" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
+            <input type="hidden" name="do_preview" value="1">
+            <div>
+                <label>Fichier CSV (matricule en 1ʳᵉ colonne)</label>
+                <input type="file" name="csv_bulk" accept=".csv,text/csv" required>
+            </div>
+            <button type="submit">🔍 Rechercher les utilisateurs</button>
+        </form>
+        <?php if ($bulk_preview !== null): ?>
+            <?php if ($bulk_notfound): ?>
+                <p style="margin:14px 0 0;background:#f8d7da;border:1px solid #f5c6cb;color:#721c24;border-radius:6px;padding:8px 12px;font-size:.82rem;">
+                    ⚠️ <?php echo count($bulk_notfound); ?> matricule(s) introuvable(s) : <?php echo htmlspecialchars(implode(', ', array_slice($bulk_notfound, 0, 60))) . (count($bulk_notfound) > 60 ? '…' : ''); ?>
+                </p>
+            <?php endif; ?>
+
+            <?php if ($bulk_preview): ?>
+            <form method="POST" style="margin-top:14px;">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrf; ?>">
+                <input type="hidden" name="do_apply" value="1">
+                <div class="svc-table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Matricule</th><th>Nom</th><th style="min-width:160px;">Établissement</th><th style="min-width:220px;">Service</th></tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($bulk_preview as $u): $eid = (int)$u['id_employe']; ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($u['matricule']); ?></td>
+                                <td><?php echo htmlspecialchars(trim($u['prenom'] . ' ' . $u['nom'])); ?></td>
+                                <td>
+                                    <select name="etab[<?php echo $eid; ?>]" style="width:100%;">
+                                        <option value="0">— Aucun —</option>
+                                        <?php foreach ($etablissements as $e): ?>
+                                            <option value="<?php echo (int)$e['id_etablissement']; ?>" <?php echo ((int)$u['id_etablissement'] === (int)$e['id_etablissement']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($e['nom']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select name="service[<?php echo $eid; ?>]" style="width:100%;">
+                                        <option value="0">— Aucun —</option>
+                                        <?php foreach ($services_rows as $s): ?>
+                                            <option value="<?php echo (int)$s['id_service']; ?>" <?php echo ((int)$u['id_service'] === (int)$s['id_service']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($s['nom']); ?> (#<?php echo (int)$s['id_service']; ?>)</option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="sub" style="margin:8px 0 0;">Si vous choisissez un <strong>service</strong>, l'établissement sera automatiquement aligné sur celui du service à l'enregistrement.</p>
+                <button type="submit" class="green" style="margin-top:12px;">💾 Enregistrer les affectations</button>
+            </form>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 
