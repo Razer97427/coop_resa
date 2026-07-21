@@ -23,3 +23,10 @@ maitre_config.php
 
 # Données debug
 debug/
+
+# Config locale Claude Code / débogage (propre à la machine)
+.claude/settings.local.json
+.claude/launch.json
+
+# Copies de sauvegarde manuelles (Windows « - Copie »)
+* - Copie.*
