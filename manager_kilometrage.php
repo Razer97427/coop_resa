@@ -205,6 +205,55 @@ include 'includes/header.php';
 .km-cell-entered { }
 .km-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 7px; }
 @media (max-width: 480px) { .km-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* ── Recherche véhicule (sélecteur principal) ── */
+.veh-search { position: relative; }
+.veh-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px 9px 34px;
+    border: 1.5px solid #dee2e6;
+    border-radius: 8px;
+    font-size: .9em;
+    margin-bottom: 0;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+}
+.veh-search-input:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0,123,255,.12);
+    outline: none;
+}
+.veh-search-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    fill: #adb5bd;
+    pointer-events: none;
+}
+.veh-options-list {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    z-index: 20;
+    box-shadow: 0 10px 24px rgba(0,0,0,.12);
+}
+.veh-options-list.show { display: block; }
+.veh-option-item { padding: 9px 12px; font-size: .88em; cursor: pointer; border-bottom: 1px solid #f1f3f5; }
+.veh-option-item:last-child { border-bottom: none; }
+.veh-option-item:hover { background: #e8f0fe; color: #007bff; }
+.veh-option-item small { display: block; color: #adb5bd; font-size: .82em; }
+.veh-no-result { padding: 10px; color: #adb5bd; font-style: italic; text-align: center; font-size: .85em; }
 </style>
 
 <div class="page-narrow">
@@ -251,10 +300,15 @@ include 'includes/header.php';
         Sélectionnez un véhicule pour visualiser l'état de ses pointages et compléter les mois manquants.
     </p>
     <form method="GET" action="manager_kilometrage.php">
-        <label for="id_vehicule" style="margin-bottom:4px;font-size:0.85rem;">Véhicule</label>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <select name="id_vehicule" id="id_vehicule" onchange="this.form.submit()"
-                style="flex:1;min-width:220px;max-width:500px;margin-bottom:0;">
+        <label for="veh_search_input" style="margin-bottom:4px;font-size:0.85rem;">Véhicule</label>
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+            <div class="veh-search" style="flex:1;min-width:220px;max-width:500px;">
+                <svg class="veh-search-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+                <input type="text" id="veh_search_input" class="veh-search-input" autocomplete="off"
+                       placeholder="Rechercher marque, modèle, immat…">
+                <div class="veh-options-list"></div>
+            </div>
+            <select name="id_vehicule" id="id_vehicule" class="veh-select" onchange="this.form.submit()" style="display:none;">
                 <option value="0">— Sélectionnez un véhicule —</option>
                 <?php if ($vehicule_manager): ?>
                     <optgroup label="★ Mon véhicule">
@@ -690,6 +744,64 @@ function demanderConfirmation() {
 
 function fermerModal()     { document.getElementById('modal-overlay').style.display = 'none'; }
 function confirmerSaisie() { fermerModal(); document.getElementById('km-form').submit(); }
+
+// Recherche véhicule (marque, modèle, immat, employé) au-dessus du select réel (conservé caché)
+function setupVehSearch(select) {
+    const wrap = select.previousElementSibling;
+    if (!wrap || !wrap.classList.contains('veh-search')) return;
+    const input = wrap.querySelector('.veh-search-input');
+    const list  = wrap.querySelector('.veh-options-list');
+
+    // Le HTML du <option> est réparti sur plusieurs lignes côté PHP : textContent
+    // récupère aussi les retours à la ligne/indentations, d'où des espaces multiples.
+    const cleanTxt = t => t.replace(/\s+/g, ' ').trim();
+
+    const items = [];
+    Array.from(select.children).forEach(node => {
+        if (node.tagName === 'OPTGROUP') {
+            Array.from(node.children).forEach(opt => items.push({ opt, group: node.label }));
+        } else if (node.tagName === 'OPTION' && node.value && node.value !== '0') {
+            items.push({ opt: node, group: null });
+        }
+    });
+
+    // Pré-remplit le champ avec le véhicule déjà sélectionné (rechargement de page)
+    const selOpt = items.find(({ opt }) => opt.value === select.value);
+    if (selOpt) input.value = cleanTxt(selOpt.opt.textContent);
+
+    function render(filter) {
+        const f = (filter || '').toLowerCase();
+        list.innerHTML = '';
+        let found = false;
+        items.forEach(({ opt, group }) => {
+            const hay = cleanTxt(opt.textContent + ' ' + (group || '')).toLowerCase();
+            if (!f || hay.includes(f)) {
+                found = true;
+                const div = document.createElement('div');
+                div.className = 'veh-option-item';
+                div.innerHTML = (group ? `<small>${group}</small>` : '') + cleanTxt(opt.textContent);
+                div.onclick = () => {
+                    input.value = cleanTxt(opt.textContent);
+                    list.classList.remove('show');
+                    select.value = opt.value;
+                    select.dispatchEvent(new Event('change'));
+                };
+                list.appendChild(div);
+            }
+        });
+        if (!found) list.innerHTML = '<div class="veh-no-result">Aucun véhicule trouvé</div>';
+        list.classList.add('show');
+    }
+
+    input.addEventListener('input', () => render(input.value));
+    input.addEventListener('focus', () => render(input.value));
+    document.addEventListener('click', (e) => {
+        if (!wrap.contains(e.target)) list.classList.remove('show');
+    });
+}
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.veh-select').forEach(setupVehSearch);
+});
 
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
     if (e.target === this) fermerModal();

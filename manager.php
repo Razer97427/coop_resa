@@ -743,26 +743,41 @@ function renderHistRow($row) {
 .veh-search-input {
     width: 100%;
     box-sizing: border-box;
-    padding: 8px;
+    padding: 8px 10px 8px 32px;
     border: 1.5px solid #dee2e6;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: .9em;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
 }
-.veh-search-input:focus { border-color: #007bff; outline: none; }
+.veh-search-input:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0,123,255,.12);
+    outline: none;
+}
+.veh-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    fill: #adb5bd;
+    pointer-events: none;
+}
 .veh-options-list {
     display: none;
     position: absolute;
-    top: 100%;
+    top: calc(100% + 5px);
     left: 0;
     right: 0;
     max-height: 220px;
     overflow-y: auto;
     background: #fff;
-    border: 1px solid #dee2e6;
-    border-top: none;
-    border-radius: 0 0 6px 6px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
     z-index: 20;
-    box-shadow: 0 4px 10px rgba(0,0,0,.08);
+    box-shadow: 0 10px 24px rgba(0,0,0,.12);
 }
 .veh-options-list.show { display: block; }
 .veh-option-item { padding: 8px 10px; font-size: .88em; cursor: pointer; border-bottom: 1px solid #f1f3f5; }
@@ -879,6 +894,10 @@ function setupVehSearch(select) {
     const input = wrap.querySelector('.veh-search-input');
     const list  = wrap.querySelector('.veh-options-list');
 
+    // Le HTML du <option> est réparti sur plusieurs lignes côté PHP : textContent
+    // récupère aussi les retours à la ligne/indentations, d'où des espaces multiples.
+    const cleanTxt = t => t.replace(/\s+/g, ' ').trim();
+
     const items = [];
     Array.from(select.children).forEach(node => {
         if (node.tagName === 'OPTGROUP') {
@@ -893,14 +912,14 @@ function setupVehSearch(select) {
         list.innerHTML = '';
         let found = false;
         items.forEach(({ opt, group }) => {
-            const hay = (opt.textContent + ' ' + (group || '')).toLowerCase();
+            const hay = cleanTxt(opt.textContent + ' ' + (group || '')).toLowerCase();
             if (!f || hay.includes(f)) {
                 found = true;
                 const div = document.createElement('div');
                 div.className = 'veh-option-item';
-                div.innerHTML = (group ? `<small>${group}</small>` : '') + opt.textContent.trim();
+                div.innerHTML = (group ? `<small>${group}</small>` : '') + cleanTxt(opt.textContent);
                 div.onclick = () => {
-                    input.value = opt.textContent.trim();
+                    input.value = cleanTxt(opt.textContent);
                     input.setCustomValidity('');
                     select.value = opt.value;
                     select.dispatchEvent(new Event('change'));
@@ -956,6 +975,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <?php $veh_dispo = getVehiculesDispos($conn, $row['date_debut_resa'], $row['date_fin_resa']); ?>
                 <?php if (!empty($veh_dispo)): ?>
                 <div class="veh-search">
+                    <svg class="veh-search-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
                     <input type="text" class="veh-search-input" placeholder="Rechercher marque, modèle, immat…" autocomplete="off">
                     <div class="veh-options-list"></div>
                 </div>

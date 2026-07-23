@@ -21,6 +21,7 @@ if (!isset($GLOBALS['EMAIL_MODULES'])) {
         'alerte_km'         => true,  // alerte_kilometrage.php  -> rappel de pointage kilométrique
         'reset_password'    => true,  // forgot.php              -> lien de réinitialisation
         'change_email'      => true,  // update_password.php     -> vérification d'une nouvelle adresse email
+        'conge_recup'       => true,  // get_conges.php          -> alerte "véhicule à récupérer" (congé long) aux managers Terracoop
     ];
 }
 if (!function_exists('email_actif')) {

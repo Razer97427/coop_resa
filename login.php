@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-// POUR LA PARTIE ADMIN IL FAUT DIVISER LE CODE PAR 25 POUR OBTENIR LE MOT DE PASSE ATTENDU (ex: code=1234 → mot de passe attendu=49)
+require_once 'includes/admin_code.php';
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -28,29 +28,32 @@ if (isset($_SESSION['user_id']) && !$logout_message && !$session_expired) {
 }
 
 // ── Connexion administrateur 2FA ───────────────────────────────────────────
-// Génère un code à 4 chiffres stocké en session ; le mot de passe attendu = floor(code / 25)
-if (isset($_GET['admin']) && empty($_SESSION['admin_challenge'])) {
-    $_SESSION['admin_challenge'] = random_int(1000, 9999);
+// Accès protégé par un code à usage unique envoyé par e-mail (jamais affiché
+// à l'écran). Une fois validé, l'accès admin reste ouvert pour la session en
+// cours (login.php ET admin_2fa.php) — un seul code suffit.
+$admin_error = '';
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['envoyer_code_admin'])) {
+    csrf_verify();
+    if (!admin_code_envoyer()) $admin_error = "Échec de l'envoi de l'e-mail. Réessayez plus tard.";
 }
 
-$admin_error = '';
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['admin_login'])) {
     csrf_verify();
-    $challenge  = (int)($_SESSION['admin_challenge'] ?? 0);
-    $expected   = (int)floor($challenge / 25);
-    $admin_pass = (int)($_POST['admin_password'] ?? -1);
-    // Régénère le code après chaque tentative (valide ou non)
-    $_SESSION['admin_challenge'] = random_int(1000, 9999);
-    if ($challenge > 0 && $admin_pass === $expected) {
+    // Si l'accès admin a déjà été vérifié plus tôt dans la session, inutile de
+    // ressaisir un code — sinon on valide normalement le code reçu par e-mail.
+    if (!empty($_SESSION['admin_code_auth']) || admin_code_verifier($_POST['admin_password'] ?? '')) {
         session_regenerate_id(true);
         $_SESSION['admin_2fa_access'] = true;
         header('Location: admin_2fa.php');
         exit();
     }
-    $admin_error = "Code incorrect.";
+    $admin_error = admin_code_verrouille()
+        ? 'Trop de tentatives. Réessayez dans 15 minutes.'
+        : 'Code incorrect.';
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
+if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login']) && !isset($_POST['envoyer_code_admin'])) {
     csrf_verify();
     $matricule       = trim($_POST['matricule'] ?? '');
     $password_saisi  = $_POST['password'] ?? '';
@@ -90,7 +93,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
                         header("Location: login_2fa_check.php");
                         exit();
                     } else {
-                        $error_message = "Connexion refusée : la double authentification (2FA) est obligatoire. Veuillez contacter le service informatique.";
+                        // Pas encore de 2FA configuré : parcours d'auto-configuration guidé.
+                        $_SESSION['2fa_setup_pending_user_id'] = $user['id_employe'];
+                        header("Location: premiere_connexion.php");
+                        exit();
                     }
 
                 } else {
@@ -278,6 +284,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
     <div class="login-card-body">
         <h2>Connexion</h2>
 
+        <div style="background:#e7f3ff; color:#0d3b8c; border:1px solid #b6d4fe; border-radius:7px; padding:11px 14px; font-size:0.83rem; margin-bottom:18px; line-height:1.5;">
+            <strong>Première connexion ?</strong> Connectez-vous simplement avec votre matricule et votre mot de passe : vous serez guidé pour configurer votre double authentification (2FA).
+        </div>
+
         <?php if ($logout_message): ?>
             <div style="background:#d4edda; color:#155724; border:1px solid #c3e6cb; border-radius:7px; padding:11px 14px; font-size:0.875rem; margin-bottom:18px; display:flex; align-items:center; gap:8px;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="#155724"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
@@ -340,22 +350,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['admin_login'])) {
             <div class="msg-error"><?php echo htmlspecialchars($admin_error); ?></div>
         <?php endif; ?>
 
-        <div style="text-align:center; margin-bottom:20px;">
-            <div style="font-size:.8rem; color:#6c757d; margin-bottom:6px;">Code de vérification</div>
-            <div style="font-size:2.4rem; font-weight:700; letter-spacing:.25em; color:#1a1a2e; font-family:monospace;">
-                <?php echo $_SESSION['admin_challenge']; ?>
-            </div>
-        </div>
-
-        <form action="login.php?admin=1" method="POST">
-            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
-            <input type="hidden" name="admin_login" value="1">
-            <div class="field-group">
-                <label for="admin_password">Réponse</label>
-                <input type="number" id="admin_password" name="admin_password" required autofocus placeholder="…" autocomplete="off">
-            </div>
-            <button type="submit" class="btn-login" style="background:#1a1a2e;">Accéder à l'administration</button>
-        </form>
+        <?php if (!empty($_SESSION['admin_code_auth'])): ?>
+            <p style="text-align:center; color:#6c757d; font-size:.85rem; margin-bottom:16px;">Accès déjà vérifié pour cette session.</p>
+            <form action="login.php?admin=1" method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input type="hidden" name="admin_login" value="1">
+                <input type="hidden" name="admin_password" value="">
+                <button type="submit" class="btn-login" style="background:#1a1a2e;" onclick="this.form.admin_password.value='';">Accéder à l'administration</button>
+            </form>
+        <?php elseif (admin_code_verrouille()): ?>
+            <p style="text-align:center; color:#6c757d; font-size:.9rem;">🔒 Accès verrouillé suite à plusieurs échecs. Réessayez dans quelques minutes.</p>
+        <?php elseif (!admin_code_actif()): ?>
+            <p style="text-align:center; color:#6c757d; font-size:.85rem; margin-bottom:16px;">Un code d'accès à usage unique doit être envoyé par e-mail avant de continuer.</p>
+            <form action="login.php?admin=1" method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input type="hidden" name="envoyer_code_admin" value="1">
+                <button type="submit" class="btn-login" style="background:#1a1a2e;">📧 Envoyer le code par e-mail</button>
+            </form>
+        <?php else: ?>
+            <p style="text-align:center; color:#6c757d; font-size:.85rem; margin-bottom:16px;">Un code a été envoyé par e-mail. Entrez-le ci-dessous (valable 5 minutes).</p>
+            <form action="login.php?admin=1" method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input type="hidden" name="admin_login" value="1">
+                <div class="field-group">
+                    <label for="admin_password">Code reçu par e-mail</label>
+                    <input type="text" id="admin_password" name="admin_password" required autofocus maxlength="6" inputmode="numeric" pattern="[0-9]{6}" placeholder="000000" autocomplete="off">
+                </div>
+                <button type="submit" class="btn-login" style="background:#1a1a2e;">Accéder à l'administration</button>
+            </form>
+            <form action="login.php?admin=1" method="POST" style="margin-top:10px;">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input type="hidden" name="envoyer_code_admin" value="1">
+                <button type="submit" style="width:100%; background:#6c757d; color:#fff; border:none; border-radius:7px; padding:9px; font-size:.85rem; cursor:pointer;">🔄 Renvoyer un code</button>
+            </form>
+        <?php endif; ?>
 
         <a href="login.php" style="display:block; text-align:center; margin-top:14px; font-size:0.83rem; color:#6c757d; text-decoration:none;">
             ← Retour à la connexion
